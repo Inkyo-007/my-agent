@@ -47,23 +47,36 @@ class ToolDefinition:
 class Tool(ABC):
     """工具抽象基类"""
 
-    defination: ToolDefinition
+    definition: ToolDefinition
+    # 工具必须包含一个 ToolDefinition 对象，但在此处不进行检测，而在工具注册时进行检测。
 
     @abstractmethod
-    def call(self, params: Dict[str, Any]) -> ToolResult:
+    async def call(self, params: Dict[str, Any]) -> ToolResult:
         """调用工具方法"""
         pass
 
-    def get_definition_dict(self) -> Dict[str, Any]:
-        """获取工具定义的字典表示"""
+    def get_basic_definition_dict(self) -> Dict[str, Any]:
+        """获取工具基础定义的字典表示，用于展示给模型"""
         return {
-            "name": self.defination.name,
-            "description": self.defination.description,
+            "name": self.definition.name,
+            "description": self.definition.description,
             "input_schema": {
-                "type": self.defination.input_schema.type,
-                "properties": self.defination.input_schema.properties,
-                "required": self.defination.input_schema.required,
+                "type": self.definition.input_schema.type,
+                "properties": self.definition.input_schema.properties,
+                "required": self.definition.input_schema.required,
             },
-            "permission_required": self.defination.permission_required,
-            "timeout_seconds": self.defination.timeout_seconds,
+        }
+    
+    def get_definition_dict(self) -> Dict[str, Any]:
+        """获取工具完整定义的字典表示"""
+        return {
+            "name": self.definition.name,
+            "description": self.definition.description,
+            "input_schema": {
+                "type": self.definition.input_schema.type,
+                "properties": self.definition.input_schema.properties,
+                "required": self.definition.input_schema.required,
+            },
+            "permission_required": self.definition.permission_required,
+            "timeout_seconds": self.definition.timeout_seconds,
         }

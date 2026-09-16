@@ -13,10 +13,6 @@ import uuid
 class EventType(str, Enum):
     """事件类型"""
 
-    # 智能体事件
-    AGENT_START = "agent_start"
-    AGENT_END = "agent_end"
-
     # 任务事件
     TASK_START = "task_start"
     TASK_END = "task_end"
