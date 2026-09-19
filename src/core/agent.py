@@ -1,6 +1,6 @@
 """智能体接口定义"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict
 
@@ -23,12 +23,8 @@ class ExecutionResult:
     status: str  # "success", "error", "timeout"
     output: str | None = None
     error: str | None = None
-    metadata: Dict[str, Any] | None = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
     # metadata 可以包含额外的执行信息，例如执行时间、token 使用情况等
-
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
 
 
 @dataclass
@@ -41,8 +37,5 @@ class Agent:
     system_prompt: str
     model_name: str
     max_steps: int = 10
-    metadata: Dict[str, Any] | None = None
-
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    reasoning_effort_list: list[str] = field(default_factory=list)
