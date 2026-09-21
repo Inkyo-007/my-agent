@@ -3,7 +3,7 @@
 无论是读文件、执行命令，还是调用 API，都要实现 Tool 基类。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List
 from abc import ABC, abstractmethod
 
@@ -15,6 +15,18 @@ class ToolResult:
     content: str
     execution_time: float
     error_type: str | None = None
+
+@dataclass
+class ToolCall:
+    """模型发出的工具调用（跨 Provider 统一格式）
+
+    Provider 层解析模型响应得到 ToolCall，agent 循环据此查找并执行工具，
+    执行结果包装为 ToolResult。
+    """
+
+    id: str
+    name: str
+    arguments: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class ToolInputSchema:
