@@ -26,7 +26,7 @@ class ToolCall:
 
     id: str
     name: str
-    arguments: Dict[str, Any] = field(default_factory=dict)
+    input: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class ToolInputSchema:
