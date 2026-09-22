@@ -28,11 +28,15 @@ class MessageType(str, Enum):
 
 @dataclass
 class Message:
-    """通用消息类"""
+    """通用消息类
+
+    thinking 记录模型的思考内容（仅 assistant 消息可能有值），用于 UI 展示与审计。
+    """
 
     role: MessageRole
     type: MessageType
     content: str
+    thinking: str | None = None
     message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
@@ -43,6 +47,7 @@ class Message:
             "role": self.role.value,
             "type": self.type.value,
             "content": self.content,
+            "thinking": self.thinking,
             "message_id": self.message_id,
             "metadata": self.metadata,
             "timestamp": self.timestamp.isoformat(),
@@ -54,11 +59,18 @@ class Message:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Message":
-        """从字典创建消息对象"""
-        return cls(
+        """从字典创建消息对象
+
+        按 type 字段还原具体子类（TOOL_USE → ToolCallMessage 等），
+        保证序列化往返后子类的属性访问器（tool_name、is_success 等）仍然有效。
+        """
+        msg_type = MessageType(data["type"])
+        target_cls = _TYPE_TO_MESSAGE_CLASS.get(msg_type, Message)
+        return target_cls(
             role=MessageRole(data["role"]),
-            type=MessageType(data["type"]),
+            type=msg_type,
             content=data["content"],
+            thinking=data.get("thinking"),
             message_id=data.get("message_id", str(uuid.uuid4())),
             metadata=data.get("metadata", {}),
             timestamp=datetime.fromisoformat(data.get("timestamp", datetime.now().isoformat())),
@@ -89,3 +101,11 @@ class ToolResultMessage(Message):
     @property
     def is_success(self) -> bool:
         return self.status == "success"
+
+
+# from_dict 的类型分发表：消息类型 → 具体消息类。
+# 定义在子类之后（运行时才被查表，不存在前向引用问题）。
+_TYPE_TO_MESSAGE_CLASS = {
+    MessageType.TOOL_USE: ToolCallMessage,
+    MessageType.TOOL_RESULT: ToolResultMessage,
+}
