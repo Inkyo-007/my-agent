@@ -2,6 +2,13 @@ from .agent import Agent, AgentState, ExecutionResult
 from .message import Message, MessageRole, MessageType, ToolCallMessage, ToolResultMessage
 from .event import Event, EventType
 from .tool import Tool, ToolCall, ToolDefinition, ToolInputSchema, ToolResult
+from .provider import (
+    BaseProvider,
+    ProviderMessage,
+    ProviderResponse,
+    StreamProviderResponse,
+    StreamType,
+)
 
 
 __all__ = [
@@ -9,4 +16,6 @@ __all__ = [
     "Message", "MessageRole", "MessageType", "ToolCallMessage", "ToolResultMessage",
     "Event", "EventType",
     "Tool", "ToolCall", "ToolDefinition", "ToolInputSchema", "ToolResult",
+    "BaseProvider", "ProviderMessage", "ProviderResponse",
+    "StreamProviderResponse", "StreamType",
 ]

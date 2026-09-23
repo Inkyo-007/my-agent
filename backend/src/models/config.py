@@ -1,14 +1,12 @@
-"""Provider 层的基础定义：统一配置、消息/响应格式与抽象基类
+"""模型配置
 
-本模块不依赖任何厂商 SDK（openai / anthropic），可独立导入。
-具体 Provider 实现见 openai_provider.py 与 claude_provider.py。
+ModelConfig / ModelProviderType 是「构造期」配置：由 application 层组装，
+传给具体 Provider 实现。runtime 等编排层不感知配置——它们只通过
+core.provider 中定义的 BaseProvider 端口与模型交互。
 """
 from enum import Enum
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Generator, Literal
-from abc import ABC, abstractmethod
-
-from ..core import Tool, ToolCall
+from dataclasses import dataclass
+from typing import Any, Dict, Literal
 
 
 class ModelProviderType(Enum):
@@ -68,65 +66,3 @@ class ModelConfig:
             }.items()
             if v is not None
         }
-
-
-@dataclass
-class ProviderMessage:
-
-    role: str
-    content: str | None = None
-    thinking: str | None = None
-    thinking_signature: str | None = None  # 签名（Anthropic 特有，多轮回传校验用）
-    redacted_thinking: str | None = None   # 加密思考数据（Anthropic 特有，原样回传）
-    tool_calls: List[ToolCall] = field(default_factory=list)  # assistant 发出的工具调用
-    tool_call_id: str | None = None  # role="tool" 时：对应哪一次调用
-
-
-@dataclass
-class ProviderResponse:
-
-    content: str
-    model: str
-    finish_reason: str
-    thinking: str | None = None
-    thinking_signature: str | None = None  # 签名（Anthropic 特有）
-    redacted_thinking: str | None = None   # 加密思考数据（Anthropic 特有）
-    token_used: int = 0
-    tool_calls: List[ToolCall] = field(default_factory=list)
-
-
-class StreamType(Enum):
-
-    TEXT_DELTA = "text_delta"
-    THINKING_DELTA = "thinking_delta"  # 思考内容增量
-    TOOL_CALL_DELTA = "tool_call_delta"
-    START = "start"
-    STOP = "stop"
-
-
-@dataclass
-class StreamProviderResponse:
-
-    type: StreamType
-    token_used: int = 0
-    delta: Dict[str, Any] = field(default_factory=dict)
-
-
-class BaseProvider(ABC):
-
-    def __init__(self, config: ModelConfig):
-        self.config = config
-
-    @abstractmethod
-    def complete(
-        self, messages: List[ProviderMessage], tools: List[Tool] | None = None
-    ) -> ProviderResponse:
-        """非流式请求"""
-        pass
-
-    @abstractmethod
-    def stream(
-        self, messages: List[ProviderMessage], tools: List[Tool] | None = None
-    ) -> Generator[StreamProviderResponse, None, None]:
-        """流式请求"""
-        pass

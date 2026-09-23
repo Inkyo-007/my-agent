@@ -5,15 +5,16 @@ tool_result 合并规则、扩展思考（手动预算 / 自适应）等协议�
 """
 from typing import Any, Dict, List, Generator
 
-from ..core import Tool, ToolCall
-from .base import (
+from ..core import (
     BaseProvider,
-    ModelConfig,
     ProviderMessage,
     ProviderResponse,
     StreamProviderResponse,
     StreamType,
+    Tool,
+    ToolCall,
 )
+from .config import ModelConfig
 
 # 延迟导入，避免未安装时直接报错
 _anthropic = None
@@ -31,7 +32,7 @@ def _get_anthropic() -> Any:
 class ClaudeProvider(BaseProvider):
 
     def __init__(self, config: ModelConfig):
-        super().__init__(config)
+        self.config = config
         anthropic = _get_anthropic()
         kwargs = self.config.client_kwargs()
         self.client = anthropic.Anthropic(**kwargs)

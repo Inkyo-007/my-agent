@@ -1,20 +1,15 @@
-"""models 包：LLM Provider 抽象与具体实现
+"""models 包：模型 Provider 的具体实现
 
-对外统一从本包导出（from src.models import ...）。
-拆分说明：
-- base.py            统一配置、消息/响应格式、抽象基类（无 SDK 依赖）
-- openai_provider.py OpenAI Chat Completions 协议（OpenAI/DeepSeek/Qwen 等）
-- claude_provider.py Anthropic Messages 协议
+本包只包含实现与构造配置：
+- config.py           ModelConfig / ModelProviderType（构造期配置）
+- openai_provider.py  OpenAI Chat Completions 协议实现
+- claude_provider.py  Anthropic Messages 协议实现
+
+契约（BaseProvider、ProviderMessage 等）定义在 core.provider——
+编排层依赖契约，不依赖本包；本包实现契约，被 application 层接线。
 """
-from .base import (
-    BaseProvider,
-    ModelConfig,
-    ModelProviderType,
-    ProviderMessage,
-    ProviderResponse,
-    StreamProviderResponse,
-    StreamType,
-)
+from ..core import BaseProvider
+from .config import ModelConfig, ModelProviderType
 from .claude_provider import ClaudeProvider
 from .openai_provider import OpenAIProvider
 
@@ -30,14 +25,9 @@ def create_provider(config: ModelConfig) -> BaseProvider:
 
 
 __all__ = [
-    "BaseProvider",
     "ClaudeProvider",
     "ModelConfig",
     "ModelProviderType",
     "OpenAIProvider",
-    "ProviderMessage",
-    "ProviderResponse",
-    "StreamProviderResponse",
-    "StreamType",
     "create_provider",
 ]

@@ -6,15 +6,16 @@
 import json
 from typing import Any, Dict, List, Generator
 
-from ..core import Tool, ToolCall
-from .base import (
+from ..core import (
     BaseProvider,
-    ModelConfig,
     ProviderMessage,
     ProviderResponse,
     StreamProviderResponse,
     StreamType,
+    Tool,
+    ToolCall,
 )
+from .config import ModelConfig
 
 # 延迟导入，避免未安装时直接报错
 _openai = None
@@ -32,7 +33,7 @@ def _get_openai() -> Any:
 class OpenAIProvider(BaseProvider):
 
     def __init__(self, config: ModelConfig):
-        super().__init__(config)
+        self.config = config
         openai = _get_openai()
         kwargs = self.config.client_kwargs()
         self.client = openai.OpenAI(**kwargs)
