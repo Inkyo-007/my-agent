@@ -1,7 +1,7 @@
 from .agent import Agent, AgentState, ExecutionResult
 from .message import Message, MessageRole, MessageType, ToolCallMessage, ToolResultMessage
-from .event import Event, EventType
-from .tool import Tool, ToolCall, ToolDefinition, ToolInputSchema, ToolResult
+from .event import Event, EventBus, EventType
+from .tool import Tool, ToolCall, ToolDefinition, ToolInputSchema, ToolResult, HookVerdict
 from .provider import (
     BaseProvider,
     ProviderMessage,
@@ -14,8 +14,8 @@ from .provider import (
 __all__ = [
     "Agent", "AgentState", "ExecutionResult",
     "Message", "MessageRole", "MessageType", "ToolCallMessage", "ToolResultMessage",
-    "Event", "EventType",
-    "Tool", "ToolCall", "ToolDefinition", "ToolInputSchema", "ToolResult",
+    "Event", "EventBus", "EventType",
+    "Tool", "ToolCall", "ToolDefinition", "ToolInputSchema", "ToolResult", "HookVerdict",
     "BaseProvider", "ProviderMessage", "ProviderResponse",
     "StreamProviderResponse", "StreamType",
 ]

@@ -17,6 +17,21 @@ class ToolResult:
     error_type: str | None = None
 
 @dataclass
+class HookVerdict:
+    """执行钩子的裁决（security 等策略模块的回答）
+
+    与 ToolResult 同属「工具执行的反馈」家族：
+    ToolResult 是执行之后的结果，HookVerdict 是执行之前的放行裁决。
+
+    拦截（allowed=False）是正常业务流程（如用户拒绝），不是异常；
+    reason 会被 executor 包装进 ToolResult.content 喂回模型，
+    使模型能得体地向用户解释，而非盲目重试。
+    """
+
+    allowed: bool
+    reason: str = ""
+
+@dataclass
 class ToolCall:
     """模型发出的工具调用（跨 Provider 统一格式）
 
