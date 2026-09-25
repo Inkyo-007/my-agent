@@ -14,7 +14,6 @@ dependencies = [
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
-    "poethepoet>=0.30",
     "ruff>=0.9",
 ]
 
@@ -28,17 +27,8 @@ markers = [
 ]
 addopts = "-m \"not live\""
 
-# 任务入口：uv run poe <task>
-[tool.poe.tasks]
-test = "pytest"
-test-live = "pytest -m live"
-lint = "ruff check ."
-format = "ruff format ."
-format-check = "ruff format --check ."
-
-# 提交前自检：lint + 格式检查 + 离线测试
-[tool.poe.tasks.check]
-sequence = ["lint", "format-check", "test"]
+# 任务入口（poe）统一定义在项目根目录的 pyproject.toml，
+# 本文件不再维护任务，避免两处定义漂移。
 
 [tool.ruff]
 target-version = "py310"

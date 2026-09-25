@@ -1,0 +1,25 @@
+# 项目根配置：命令任务的统一入口（poe）
+#
+# 本文件不声明 Python 项目，仅承载跨端任务编排；
+# 后端的依赖管理、pytest 与 ruff 配置见 backend/pyproject.toml。
+#
+# 前置要求（一次性）：uv tool install poethepoet
+# 用法：在项目根目录执行 poe <task>
+
+# ---- 后端 ----
+[tool.poe.tasks]
+test = "uv run --directory backend pytest"
+test-live = "uv run --directory backend pytest -m live"
+lint = "uv run --directory backend ruff check ."
+format = "uv run --directory backend ruff format ."
+format-check = "uv run --directory backend ruff format --check ."
+
+# 提交前自检：lint + 格式检查 + 离线测试
+[tool.poe.tasks.check]
+sequence = ["lint", "format-check", "test"]
+
+# ---- 前端（待 frontend/ 建立后启用，命令按实际包管理器调整）----
+# 启用时将以下任务追加到上方 [tool.poe.tasks] 一节中：
+# dev = "pnpm --dir frontend dev"
+# build = "pnpm --dir frontend build"
+# preview = "pnpm --dir frontend preview"
