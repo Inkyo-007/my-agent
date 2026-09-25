@@ -3,12 +3,12 @@
 用于流式输出、日志记录、UI 更新。
 """
 
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict
-from enum import Enum
 from datetime import datetime
-import uuid
+from enum import Enum
+from typing import Any, Callable, Dict
 
 
 class EventType(str, Enum):

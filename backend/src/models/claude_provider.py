@@ -3,7 +3,8 @@
 对应 Anthropic Messages API 协议：block 结构的响应、顶层 system 参数、
 tool_result 合并规则、扩展思考（手动预算 / 自适应）等协议知识都封装在本文件。
 """
-from typing import Any, Dict, List, Generator
+
+from typing import Any, Dict, Generator, List
 
 from ..core import (
     BaseProvider,
@@ -30,7 +31,6 @@ def _get_anthropic() -> Any:
 
 
 class ClaudeProvider(BaseProvider):
-
     def __init__(self, config: ModelConfig):
         self.config = config
         anthropic = _get_anthropic()
@@ -62,11 +62,13 @@ class ClaudeProvider(BaseProvider):
                 redacted_thinking = block.data
             elif block.type == "tool_use":
                 # input 已是解析好的 dict，无需 json.loads
-                tool_calls.append(ToolCall(
-                    id=block.id,
-                    name=block.name,
-                    input=block.input or {},
-                ))
+                tool_calls.append(
+                    ToolCall(
+                        id=block.id,
+                        name=block.name,
+                        input=block.input or {},
+                    )
+                )
 
         usage = response.usage
         return ProviderResponse(
@@ -111,8 +113,12 @@ class ClaudeProvider(BaseProvider):
                         # 工具调用的 id/name 在 start 事件一次性给全
                         yield StreamProviderResponse(
                             type=StreamType.TOOL_CALL_DELTA,
-                            delta={"index": event.index, "id": block.id,
-                                   "name": block.name, "input": None},
+                            delta={
+                                "index": event.index,
+                                "id": block.id,
+                                "name": block.name,
+                                "input": None,
+                            },
                         )
                     elif block.type == "redacted_thinking":
                         # 加密思考数据在 start 事件一次性给全（无 delta），透传给上层留存回传
@@ -142,8 +148,12 @@ class ClaudeProvider(BaseProvider):
                         # 工具参数的 JSON 碎片（对应 OpenAI 的 input 碎片）
                         yield StreamProviderResponse(
                             type=StreamType.TOOL_CALL_DELTA,
-                            delta={"index": event.index, "id": None,
-                                   "name": None, "input": d.partial_json},
+                            delta={
+                                "index": event.index,
+                                "id": None,
+                                "name": None,
+                                "input": d.partial_json,
+                            },
                         )
 
                 elif event.type == "message_delta":
@@ -229,24 +239,30 @@ class ClaudeProvider(BaseProvider):
             if m.role == "assistant":
                 blocks: List[Dict[str, Any]] = []
                 if m.thinking:
-                    blocks.append({
-                        "type": "thinking",
-                        "thinking": m.thinking,
-                        "signature": m.thinking_signature,
-                    })
+                    blocks.append(
+                        {
+                            "type": "thinking",
+                            "thinking": m.thinking,
+                            "signature": m.thinking_signature,
+                        }
+                    )
                 if m.redacted_thinking:
-                    blocks.append({
-                        "type": "redacted_thinking",
-                        "data": m.redacted_thinking,
-                    })
+                    blocks.append(
+                        {
+                            "type": "redacted_thinking",
+                            "data": m.redacted_thinking,
+                        }
+                    )
                 if m.content:
                     blocks.append({"type": "text", "text": m.content})
                 for tc in m.tool_calls:
                     blocks.append(ClaudeProvider._serialize_tool_call(tc))
-                api_messages.append({
-                    "role": "assistant",
-                    "content": blocks if blocks else (m.content or ""),
-                })
+                api_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": blocks if blocks else (m.content or ""),
+                    }
+                )
 
             elif m.role == "tool":
                 block = {
@@ -255,7 +271,11 @@ class ClaudeProvider(BaseProvider):
                     "content": m.content or "",
                 }
                 prev = api_messages[-1] if api_messages else None
-                if prev and prev["role"] == "user" and isinstance(prev["content"], list):
+                if (
+                    prev
+                    and prev["role"] == "user"
+                    and isinstance(prev["content"], list)
+                ):
                     # 与上一条工具结果合并进同一条 user 消息
                     prev["content"].append(block)
                 else:

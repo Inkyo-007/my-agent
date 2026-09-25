@@ -8,9 +8,10 @@
 契约（BaseProvider、ProviderMessage 等）定义在 core.provider——
 编排层依赖契约，不依赖本包；本包实现契约，被 application 层接线。
 """
+
 from ..core import BaseProvider
-from .config import ModelConfig, ModelProviderType
 from .claude_provider import ClaudeProvider
+from .config import ModelConfig, ModelProviderType
 from .openai_provider import OpenAIProvider
 
 

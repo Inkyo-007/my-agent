@@ -3,6 +3,7 @@
 职责边界：只做「存与取」。执行语义（超时控制、钩子链、事件发射）
 属于 executor.py，不在此处。
 """
+
 from typing import Dict, List
 
 from ..core import Tool, ToolDefinition, ToolInputSchema
@@ -30,7 +31,9 @@ class ToolRegistry:
         if not definition.name:
             raise ValueError(f"工具 {type(tool).__name__} 的 definition.name 不能为空")
         if not definition.description:
-            raise ValueError(f"工具 {definition.name} 的 definition.description 不能为空")
+            raise ValueError(
+                f"工具 {definition.name} 的 definition.description 不能为空"
+            )
         if not isinstance(definition.input_schema, ToolInputSchema):
             raise ValueError(
                 f"工具 {definition.name} 的 input_schema 必须是 ToolInputSchema 实例"

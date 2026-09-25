@@ -4,8 +4,9 @@ ModelConfig / ModelProviderType 是「构造期」配置：由 application 层�
 传给具体 Provider 实现。runtime 等编排层不感知配置——它们只通过
 core.provider 中定义的 BaseProvider 端口与模型交互。
 """
-from enum import Enum
+
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Dict, Literal
 
 

@@ -3,12 +3,13 @@
 无论是用户输入、模型回复、工具结果，都要包装成 Message。
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Dict
-from enum import Enum
-from datetime import datetime
-import uuid
 import json
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict
+
 
 class MessageRole(str, Enum):
     """消息角色"""
@@ -18,6 +19,7 @@ class MessageRole(str, Enum):
     USER = "user"
     TOOL = "tool"
 
+
 class MessageType(str, Enum):
     """消息类型"""
 
@@ -25,6 +27,7 @@ class MessageType(str, Enum):
     TOOL_USE = "tool_use"
     TOOL_RESULT = "tool_result"
     EVENT = "event"
+
 
 @dataclass
 class Message:
@@ -73,8 +76,11 @@ class Message:
             thinking=data.get("thinking"),
             message_id=data.get("message_id", str(uuid.uuid4())),
             metadata=data.get("metadata", {}),
-            timestamp=datetime.fromisoformat(data.get("timestamp", datetime.now().isoformat())),
+            timestamp=datetime.fromisoformat(
+                data.get("timestamp", datetime.now().isoformat())
+            ),
         )
+
 
 @dataclass
 class ToolCallMessage(Message):
@@ -89,6 +95,7 @@ class ToolCallMessage(Message):
     def tool_params(self) -> Dict[str, Any]:
         value = self.metadata.get("tool_params", {})
         return value if isinstance(value, dict) else {}
+
 
 @dataclass
 class ToolResultMessage(Message):

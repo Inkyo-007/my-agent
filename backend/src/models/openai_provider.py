@@ -3,8 +3,9 @@
 一个 Provider 对应一种协议：所有遵循 OpenAI Chat Completions 协议的厂商
 （换 base_url + model_id 即可接入）都复用本实现。
 """
+
 import json
-from typing import Any, Dict, List, Generator
+from typing import Any, Dict, Generator, List
 
 from ..core import (
     BaseProvider,
@@ -31,7 +32,6 @@ def _get_openai() -> Any:
 
 
 class OpenAIProvider(BaseProvider):
-
     def __init__(self, config: ModelConfig):
         self.config = config
         openai = _get_openai()
@@ -56,11 +56,13 @@ class OpenAIProvider(BaseProvider):
                         args = json.loads(args)
                     except json.JSONDecodeError:
                         args = {}
-                tool_calls.append(ToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
-                    input=args,
-                ))
+                tool_calls.append(
+                    ToolCall(
+                        id=tc.id,
+                        name=tc.function.name,
+                        input=args,
+                    )
+                )
 
         return ProviderResponse(
             content=message.content or "",
@@ -68,7 +70,7 @@ class OpenAIProvider(BaseProvider):
             finish_reason=choice.finish_reason or "stop",
             thinking=getattr(message, "reasoning_content", None),
             token_used=response.usage.total_tokens if response.usage else 0,
-            tool_calls=tool_calls
+            tool_calls=tool_calls,
         )
 
     def stream(
@@ -99,8 +101,7 @@ class OpenAIProvider(BaseProvider):
                 if not started:
                     started = True
                     yield StreamProviderResponse(
-                        type = StreamType.START,
-                        delta = {"role": delta.role or "assistant"}
+                        type=StreamType.START, delta={"role": delta.role or "assistant"}
                     )
 
                 # OpenAI 官方 schema 里不包含 reasoning_content，而部分 OpenAI 兼容服务包含该字段
@@ -108,28 +109,26 @@ class OpenAIProvider(BaseProvider):
                 thinking = getattr(delta, "reasoning_content", None)
                 if thinking:
                     yield StreamProviderResponse(
-                        type = StreamType.THINKING_DELTA,
-                        delta = {"thinking": thinking}
+                        type=StreamType.THINKING_DELTA, delta={"thinking": thinking}
                     )
 
                 # 正文 chunk
                 if delta.content:
                     yield StreamProviderResponse(
-                        type = StreamType.TEXT_DELTA,
-                        delta = {"content": delta.content}
+                        type=StreamType.TEXT_DELTA, delta={"content": delta.content}
                     )
 
                 # 工具调用 chunk
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         yield StreamProviderResponse(
-                            type = StreamType.TOOL_CALL_DELTA,
-                            delta = {
+                            type=StreamType.TOOL_CALL_DELTA,
+                            delta={
                                 "index": tc.index,
                                 "id": tc.id,
                                 "name": tc.function.name if tc.function else None,
-                                "input": tc.function.arguments if tc.function else None
-                            }
+                                "input": tc.function.arguments if tc.function else None,
+                            },
                         )
 
                 # 暂存 finish_reason，不立即发 STOP：
@@ -140,12 +139,14 @@ class OpenAIProvider(BaseProvider):
         # 流结束后统一发 STOP：两种厂商形态的 usage 此时都已收到，
         # 保证 STOP 携带完整的 token 统计，且 STOP 一定是最后一个事件
         yield StreamProviderResponse(
-            type = StreamType.STOP,
-            delta = {"finish_reason": finish_reason or "unknown"},
-            token_used = token_used
+            type=StreamType.STOP,
+            delta={"finish_reason": finish_reason or "unknown"},
+            token_used=token_used,
         )
 
-    def _build_request_kwargs(self, messages: List[ProviderMessage], tools: List[Tool]) -> Dict[str, Any]:
+    def _build_request_kwargs(
+        self, messages: List[ProviderMessage], tools: List[Tool]
+    ) -> Dict[str, Any]:
         """
         构建请求参数字典，用于调用 OpenAI API
         属于 complete() 与 stream() 共用的请求参数组装
@@ -182,7 +183,9 @@ class OpenAIProvider(BaseProvider):
                 msg["reasoning_content"] = m.thinking
             if m.tool_calls:
                 # assistant 的工具调用回传：arguments 需重新序列化为 JSON 字符串
-                msg["tool_calls"] = [OpenAIProvider._serialize_tool_call(tc) for tc in m.tool_calls]
+                msg["tool_calls"] = [
+                    OpenAIProvider._serialize_tool_call(tc) for tc in m.tool_calls
+                ]
             if m.tool_call_id:
                 # role="tool" 的工具结果消息
                 msg["tool_call_id"] = m.tool_call_id
@@ -214,7 +217,7 @@ class OpenAIProvider(BaseProvider):
                         "name": tool_dict["name"],
                         "description": tool_dict["description"],
                         "parameters": tool_dict["input_schema"],
-                    }
+                    },
                 }
             )
 

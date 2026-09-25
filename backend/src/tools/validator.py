@@ -5,6 +5,7 @@
 错误文案的消费者是模型本身——executor 会把这些文案包装进 ToolResult
 喂回模型，模型据此自我纠正重试。因此文案必须具体、可操作。
 """
+
 from difflib import get_close_matches
 from typing import List
 

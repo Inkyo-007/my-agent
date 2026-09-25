@@ -31,7 +31,7 @@ class ProviderMessage:
     content: str | None = None
     thinking: str | None = None
     thinking_signature: str | None = None  # 签名（Anthropic 特有，多轮回传校验用）
-    redacted_thinking: str | None = None   # 加密思考数据（Anthropic 特有，原样回传）
+    redacted_thinking: str | None = None  # 加密思考数据（Anthropic 特有，原样回传）
     tool_calls: List[ToolCall] = field(default_factory=list)  # assistant 发出的工具调用
     tool_call_id: str | None = None  # role="tool" 时：对应哪一次调用
 
@@ -45,7 +45,7 @@ class ProviderResponse:
     finish_reason: str
     thinking: str | None = None
     thinking_signature: str | None = None  # 签名（Anthropic 特有）
-    redacted_thinking: str | None = None   # 加密思考数据（Anthropic 特有）
+    redacted_thinking: str | None = None  # 加密思考数据（Anthropic 特有）
     token_used: int = 0
     tool_calls: List[ToolCall] = field(default_factory=list)
 

@@ -9,6 +9,7 @@
 error_type 是稳定契约（上述五个值），供 UI/审计/循环分类消费；
 错误的可读文案放在 content——循环会把它喂回模型，模型据此自我纠正。
 """
+
 import asyncio
 import time
 from typing import Any, Callable, List
@@ -51,9 +52,12 @@ class ToolExecutor:
 
     async def execute(self, tool_call: ToolCall) -> ToolResult:
         """执行一次工具调用，永远返回 ToolResult，不向调用方抛异常"""
-        self._emit(EventType.TOOL_EXECUTION_START,
-                   f"开始执行工具 {tool_call.name}",
-                   tool_name=tool_call.name, tool_call_id=tool_call.id)
+        self._emit(
+            EventType.TOOL_EXECUTION_START,
+            f"开始执行工具 {tool_call.name}",
+            tool_name=tool_call.name,
+            tool_call_id=tool_call.id,
+        )
 
         # 1. 存在性检查
         tool = self.registry.get(tool_call.name)
@@ -70,8 +74,11 @@ class ToolExecutor:
         for hook in self.hooks:
             verdict = hook(tool_call, tool.definition)
             if not verdict.allowed:
-                return self._fail(tool_call, "permission_denied",
-                                  verdict.reason or "执行被策略钩子拒绝")
+                return self._fail(
+                    tool_call,
+                    "permission_denied",
+                    verdict.reason or "执行被策略钩子拒绝",
+                )
 
         # 4. 执行（execution_time 只计工具实际调用耗时）
         start = time.perf_counter()
@@ -83,40 +90,58 @@ class ToolExecutor:
         except (asyncio.TimeoutError, TimeoutError):
             elapsed = time.perf_counter() - start
             return self._fail(
-                tool_call, "timeout",
+                tool_call,
+                "timeout",
                 f"工具 {tool_call.name} 执行超时（超过 {tool.definition.timeout_seconds}s）",
                 execution_time=elapsed,
             )
         except Exception as e:
             elapsed = time.perf_counter() - start
             return self._fail(
-                tool_call, "execution_error",
+                tool_call,
+                "execution_error",
                 f"工具 {tool_call.name} 执行异常：{type(e).__name__}: {e}",
                 execution_time=elapsed,
             )
 
-        self._emit(EventType.TOOL_EXECUTION_END,
-                   f"工具 {tool_call.name} 执行成功",
-                   tool_name=tool_call.name, tool_call_id=tool_call.id)
+        self._emit(
+            EventType.TOOL_EXECUTION_END,
+            f"工具 {tool_call.name} 执行成功",
+            tool_name=tool_call.name,
+            tool_call_id=tool_call.id,
+        )
         return result
 
     def _fail(
-        self, tool_call: ToolCall, error_type: str, message: str,
+        self,
+        tool_call: ToolCall,
+        error_type: str,
+        message: str,
         execution_time: float = 0.0,
     ) -> ToolResult:
         """统一构造失败结果并发射失败事件"""
-        self._emit(EventType.TOOL_EXECUTION_FAILED, message,
-                   tool_name=tool_call.name, tool_call_id=tool_call.id,
-                   error_type=error_type)
-        return ToolResult(success=False, content=message,
-                          execution_time=execution_time, error_type=error_type)
+        self._emit(
+            EventType.TOOL_EXECUTION_FAILED,
+            message,
+            tool_name=tool_call.name,
+            tool_call_id=tool_call.id,
+            error_type=error_type,
+        )
+        return ToolResult(
+            success=False,
+            content=message,
+            execution_time=execution_time,
+            error_type=error_type,
+        )
 
     def _emit(self, event_type: EventType, content: str, **metadata: Any) -> None:
         """发射事件；event_bus 为 None 时静默"""
         if self.event_bus is not None:
-            self.event_bus.publish(Event(
-                type=event_type,
-                source="tool_executor",
-                content=content,
-                metadata=metadata,
-            ))
+            self.event_bus.publish(
+                Event(
+                    type=event_type,
+                    source="tool_executor",
+                    content=content,
+                    metadata=metadata,
+                )
+            )

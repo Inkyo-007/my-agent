@@ -3,9 +3,10 @@
 无论是读文件、执行命令，还是调用 API，都要实现 Tool 基类。
 """
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
-from abc import ABC, abstractmethod
+
 
 @dataclass
 class ToolResult:
@@ -15,6 +16,7 @@ class ToolResult:
     content: str
     execution_time: float
     error_type: str | None = None
+
 
 @dataclass
 class HookVerdict:
@@ -31,6 +33,7 @@ class HookVerdict:
     allowed: bool
     reason: str = ""
 
+
 @dataclass
 class ToolCall:
     """模型发出的工具调用（跨 Provider 统一格式）
@@ -42,6 +45,7 @@ class ToolCall:
     id: str
     name: str
     input: Dict[str, Any] = field(default_factory=dict)
+
 
 @dataclass
 class ToolInputSchema:
@@ -57,6 +61,7 @@ class ToolInputSchema:
         if self.required is None:
             self.required = []
 
+
 @dataclass
 class ToolDefinition:
     """工具定义类"""
@@ -70,6 +75,7 @@ class ToolDefinition:
     def __post_init__(self):
         if self.permission_required is None:
             self.permission_required = []
+
 
 class Tool(ABC):
     """工具抽象基类"""
@@ -93,7 +99,7 @@ class Tool(ABC):
                 "required": self.definition.input_schema.required,
             },
         }
-    
+
     def get_definition_dict(self) -> Dict[str, Any]:
         """获取工具完整定义的字典表示"""
         return {

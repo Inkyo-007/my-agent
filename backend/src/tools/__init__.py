@@ -6,6 +6,7 @@
 - builtin/：（待 M2）预装工具——只是注册进 ToolRegistry 的内容，地位与
   将来 MCP 适配来的、用户自加的工具平等（见 docs/architecture.md D14）
 """
+
 from .executor import ToolExecutor
 from .registry import ToolRegistry
 
