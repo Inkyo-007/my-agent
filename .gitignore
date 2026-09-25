@@ -1,5 +1,32 @@
+# 环境配置（含密钥，不入库；示例模板除外）
 .env
+.env.*
+!.env.example
+
+# Python 虚拟环境
 venv/
 .venv/
+
+# Python 字节码与构建产物
 __pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# 测试与工具缓存
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+
+# 操作系统
+Thumbs.db
+Desktop.ini
+.DS_Store
