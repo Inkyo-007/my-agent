@@ -15,6 +15,7 @@ dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "ruff>=0.9",
+    "basedpyright>=1.28",
 ]
 
 # pytest 配置（自 pytest.ini 迁入，单一配置来源）
@@ -41,3 +42,11 @@ ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
+
+# 类型检查：standard 模式（比默认的 recommended 收敛 Any 类噪音，
+# SDK 动态属性与测试打桩是本项目常态，不值得逐条对抗）
+# extraPaths 对齐 pytest 的 pythonpath，使 src.* 与 fakes 顶层导入可解析
+[tool.basedpyright]
+typeCheckingMode = "standard"
+include = ["src", "test"]
+extraPaths = [".", "test"]
