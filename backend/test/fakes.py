@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import Any, Dict
 
 from src.core import Tool, ToolDefinition, ToolInputSchema, ToolResult
+from src.models import OpenAIProvider
 
 
 class WeatherTool(Tool):
@@ -31,12 +32,12 @@ class WeatherTool(Tool):
 
 
 def make_response(
-    content="ok",
-    thinking=None,
-    tool_calls=None,
-    finish_reason="stop",
-    total_tokens=10,
-    model="deepseek-chat",
+    content: str | None = "ok",
+    thinking: str | None = None,
+    tool_calls: list | None = None,
+    finish_reason: str | None = "stop",
+    total_tokens: int = 10,
+    model: str = "deepseek-chat",
 ):
     """伪造一个 client.chat.completions.create 的返回对象
 
@@ -58,3 +59,14 @@ def make_tool_call(call_id="call_1", name="get_weather", arguments='{"city": "�
         id=call_id,
         function=SimpleNamespace(name=name, arguments=arguments),
     )
+
+
+class StubbedOpenAIProvider(OpenAIProvider):
+    """OpenAIProvider 的打桩版：声明测试附加的属性，使类型检查可见
+
+    - captured：complete()/stream() 实际组装的请求参数
+    - stubbed_response：测试可替换的伪造响应
+    """
+
+    captured: Dict[str, Any]
+    stubbed_response: Any

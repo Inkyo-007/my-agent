@@ -18,18 +18,20 @@ from src.core import (
     ToolResult,
 )
 from src.tools import ToolExecutor, ToolRegistry
+from src.tools.executor import ExecutionHook
 
 
-def make_tool(
-    name: str = "get_weather",
-    delay: float = 0.0,
-    error: Exception | None = None,
-    timeout_seconds: int = 30,
-) -> Tool:
-    """构造可控制的测试工具：delay 模拟耗时，error 模拟内部异常"""
+class StubTool(Tool):
+    """可控制的测试工具：delay 模拟耗时，error 模拟内部异常"""
 
-    class _Tool(Tool):
-        definition = ToolDefinition(
+    def __init__(
+        self,
+        name: str = "get_weather",
+        delay: float = 0.0,
+        error: Exception | None = None,
+        timeout_seconds: float = 30,
+    ):
+        self.definition = ToolDefinition(
             name=name,
             description="测试工具",
             input_schema=ToolInputSchema(
@@ -38,23 +40,31 @@ def make_tool(
             ),
             timeout_seconds=timeout_seconds,
         )
+        self.called = False
+        self._delay = delay
+        self._error = error
 
-        called: bool = False
+    async def call(self, params: Dict[str, Any]) -> ToolResult:
+        self.called = True
+        if self._delay:
+            await asyncio.sleep(self._delay)
+        if self._error is not None:
+            raise self._error
+        return ToolResult(success=True, content="晴", execution_time=0.0)
 
-        async def call(self, params: Dict[str, Any]) -> ToolResult:
-            self.called = True
-            if delay:
-                await asyncio.sleep(delay)
-            if error is not None:
-                raise error
-            return ToolResult(success=True, content="晴", execution_time=0.0)
 
-    return _Tool()
+def make_tool(
+    name: str = "get_weather",
+    delay: float = 0.0,
+    error: Exception | None = None,
+    timeout_seconds: float = 30,
+) -> StubTool:
+    return StubTool(name, delay, error, timeout_seconds)
 
 
 def make_executor(
     tool: Tool,
-    hooks: List | None = None,
+    hooks: List[ExecutionHook] | None = None,
     bus: EventBus | None = None,
 ) -> ToolExecutor:
     registry = ToolRegistry()

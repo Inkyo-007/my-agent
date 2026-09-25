@@ -70,7 +70,7 @@ class ToolDefinition:
     description: str
     input_schema: ToolInputSchema
     permission_required: List[str] | None = None
-    timeout_seconds: int = 30
+    timeout_seconds: float = 30
 
     def __post_init__(self):
         if self.permission_required is None:

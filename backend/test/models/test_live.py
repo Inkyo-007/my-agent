@@ -31,7 +31,7 @@ def live_provider():
     return OpenAIProvider(
         ModelConfig(
             provider=ModelProviderType.OPENAI,
-            model_id=os.getenv("LLM_API_MODEL"),
+            model_id=os.getenv("LLM_API_MODEL", ""),
             api_key=os.getenv("LLM_API_KEY"),
             base_url=os.getenv("LLM_BASE_URL"),
             max_tokens=1024,

@@ -48,6 +48,11 @@ class TestCreateProvider:
         assert isinstance(create_provider(claude_cfg), ClaudeProvider)
 
     def test_未知类型抛错(self):
-        cfg = ModelConfig(provider="not-a-provider", model_id="m", api_key="k")
+        # 故意传入非法 provider 值以验证报错分支
+        cfg = ModelConfig(
+            provider="not-a-provider",  # pyright: ignore[reportArgumentType]
+            model_id="m",
+            api_key="k",
+        )
         with pytest.raises(ValueError, match="不支持"):
             create_provider(cfg)

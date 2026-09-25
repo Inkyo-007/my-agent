@@ -145,13 +145,13 @@ class OpenAIProvider(BaseProvider):
         )
 
     def _build_request_kwargs(
-        self, messages: List[ProviderMessage], tools: List[Tool]
+        self, messages: List[ProviderMessage], tools: List[Tool] | None = None
     ) -> Dict[str, Any]:
         """
         构建请求参数字典，用于调用 OpenAI API
         属于 complete() 与 stream() 共用的请求参数组装
         """
-        kwargs = {
+        kwargs: Dict[str, Any] = {
             "model": self.config.model_id,
             "messages": self._build_api_messages(messages),
             self.config.max_tokens_param: self.config.max_tokens,

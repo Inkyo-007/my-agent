@@ -75,7 +75,8 @@ class Test注册校验:
 
     def test_input_schema类型错误时拒绝注册(self, registry):
         tool = make_tool()
-        tool.definition.input_schema = {"type": "object"}  # 应为 ToolInputSchema 实例
+        # 故意赋值为 dict 以验证注册时的类型拦截
+        tool.definition.input_schema = {"type": "object"}  # pyright: ignore[reportAttributeAccessIssue]
         with pytest.raises(ValueError, match="input_schema"):
             registry.register(tool)
 

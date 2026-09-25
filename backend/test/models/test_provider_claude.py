@@ -5,6 +5,7 @@
 """
 
 from types import SimpleNamespace
+from typing import Any, Dict
 
 import pytest
 from fakes import WeatherTool
@@ -104,10 +105,38 @@ def ev_message_delta(stop_reason="end_turn", output_tokens=30):
 # ---------- fixture ----------
 
 
+class StubbedClaudeProvider(ClaudeProvider):
+    """ClaudeProvider 的打桩版：声明测试附加的属性，使类型检查可见
+
+    - captured：complete()/stream() 实际组装的请求参数
+    - stubbed_response：测试可替换的伪造响应
+    """
+
+    captured: Dict[str, Any]
+    stubbed_response: Any
+
+
+def make_stubbed_provider(**config_overrides) -> StubbedClaudeProvider:
+    """构造一个带自定义配置、只捕获请求参数的打桩 Provider"""
+    p = StubbedClaudeProvider(
+        ModelConfig(
+            provider=ModelProviderType.CLAUDE,
+            model_id="claude-test",
+            api_key="fake-key",
+            **config_overrides,
+        )
+    )
+    p.captured = {}
+    p.client.messages.create = lambda **kw: (
+        p.captured.update(kw) or make_claude_response([text_block("ok")])
+    )
+    return p
+
+
 @pytest.fixture
 def provider():
     """打桩后的 ClaudeProvider：messages.create 被替换为参数捕获器"""
-    p = ClaudeProvider(
+    p = StubbedClaudeProvider(
         ModelConfig(
             provider=ModelProviderType.CLAUDE,
             model_id="claude-test",
@@ -163,61 +192,22 @@ class Test请求组装:
         assert provider.captured["extra_body"] == {"some_vendor_flag": True}
 
     def test_开启扩展思考(self):
-        p = ClaudeProvider(
-            ModelConfig(
-                provider=ModelProviderType.CLAUDE,
-                model_id="claude-test",
-                api_key="fake-key",
-                max_tokens=8000,
-                thinking_budget=5000,
-            )
-        )
-        p.captured = {}
-        p.client.messages.create = lambda **kw: (
-            p.captured.update(kw) or make_claude_response([text_block("ok")])
-        )
+        p = make_stubbed_provider(max_tokens=8000, thinking_budget=5000)
         ask(p)
         assert p.captured["thinking"] == {"type": "enabled", "budget_tokens": 5000}
 
     def test_thinking预算不小于max_tokens时抛错(self):
-        p = ClaudeProvider(
-            ModelConfig(
-                provider=ModelProviderType.CLAUDE,
-                model_id="claude-test",
-                api_key="fake-key",
-                max_tokens=1000,
-                thinking_budget=5000,
-            )
-        )
+        p = make_stubbed_provider(max_tokens=1000, thinking_budget=5000)
         with pytest.raises(ValueError):
             ask(p)
 
     def test_thinking预算小于1024时抛错(self):
-        p = ClaudeProvider(
-            ModelConfig(
-                provider=ModelProviderType.CLAUDE,
-                model_id="claude-test",
-                api_key="fake-key",
-                max_tokens=8000,
-                thinking_budget=512,
-            )
-        )
+        p = make_stubbed_provider(max_tokens=8000, thinking_budget=512)
         with pytest.raises(ValueError, match="1024"):
             ask(p)
 
     def test_reasoning_effort触发adaptive思考(self):
-        p = ClaudeProvider(
-            ModelConfig(
-                provider=ModelProviderType.CLAUDE,
-                model_id="claude-test",
-                api_key="fake-key",
-                reasoning_effort="high",
-            )
-        )
-        p.captured = {}
-        p.client.messages.create = lambda **kw: (
-            p.captured.update(kw) or make_claude_response([text_block("ok")])
-        )
+        p = make_stubbed_provider(reasoning_effort="high")
         ask(p)
         # 显式声明 adaptive，不依赖 API 默认行为
         assert p.captured["thinking"] == {"type": "adaptive"}
@@ -225,19 +215,10 @@ class Test请求组装:
 
     def test_thinking预算优先于adaptive(self):
         # 同时设置 budget 和 effort 时，走手动预算模式，不发 adaptive
-        p = ClaudeProvider(
-            ModelConfig(
-                provider=ModelProviderType.CLAUDE,
-                model_id="claude-test",
-                api_key="fake-key",
-                max_tokens=8000,
-                thinking_budget=5000,
-                reasoning_effort="high",
-            )
-        )
-        p.captured = {}
-        p.client.messages.create = lambda **kw: (
-            p.captured.update(kw) or make_claude_response([text_block("ok")])
+        p = make_stubbed_provider(
+            max_tokens=8000,
+            thinking_budget=5000,
+            reasoning_effort="high",
         )
         ask(p)
         assert p.captured["thinking"] == {"type": "enabled", "budget_tokens": 5000}

@@ -22,17 +22,20 @@ class Test工具存在性检查:
 
     def test_工具不存在时文案含可用工具清单(self):
         result = check_tool_exists(ToolCall(id="1", name="xyzzy"), make_registry())
+        assert result is not None
         assert "未注册" in result
         assert "get_weather" in result  # 可用清单中列出
 
     def test_相近名字时给出模糊建议(self):
         result = check_tool_exists(ToolCall(id="1", name="get_weathe"), make_registry())
+        assert result is not None
         assert "您是想要调用 'get_weather' 吗？" in result
 
     def test_相差太远的名字不给建议(self):
         result = check_tool_exists(
             ToolCall(id="1", name="delete_database"), make_registry()
         )
+        assert result is not None
         assert "您是想要" not in result
 
 

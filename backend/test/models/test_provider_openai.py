@@ -7,19 +7,18 @@
 
 from types import SimpleNamespace
 
-from fakes import WeatherTool, make_response, make_tool_call
+from fakes import StubbedOpenAIProvider, WeatherTool, make_response, make_tool_call
 
 from src.core import ProviderMessage, StreamType, ToolCall
 from src.models import (
     ModelConfig,
     ModelProviderType,
-    OpenAIProvider,
 )
 
 
-def make_stubbed_provider(**config_overrides) -> OpenAIProvider:
+def make_stubbed_provider(**config_overrides) -> StubbedOpenAIProvider:
     """构造一个带自定义配置、只捕获请求参数的打桩 Provider"""
-    p = OpenAIProvider(
+    p = StubbedOpenAIProvider(
         ModelConfig(
             provider=ModelProviderType.OPENAI,
             model_id="test-model",

@@ -5,9 +5,9 @@
 """
 
 import pytest
-from fakes import make_response
+from fakes import StubbedOpenAIProvider, make_response
 
-from src.models import ModelConfig, ModelProviderType, OpenAIProvider
+from src.models import ModelConfig, ModelProviderType
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def provider():
     - captured：complete() 实际组装的请求参数
     - stubbed_response：测试可替换的伪造响应
     """
-    p = OpenAIProvider(
+    p = StubbedOpenAIProvider(
         ModelConfig(
             provider=ModelProviderType.OPENAI,
             model_id="deepseek-chat",

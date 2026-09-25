@@ -23,8 +23,8 @@ from ..core import (
     ToolDefinition,
     ToolResult,
 )
-from . import validator
 from .registry import ToolRegistry
+from .validator import check_tool_exists, validate_tool_input
 
 # 执行钩子：工具执行前的策略检查点（security 的挂载点）。
 # 任何符合此签名的可调用对象都是合法实现——普通函数，
@@ -62,11 +62,11 @@ class ToolExecutor:
         # 1. 存在性检查
         tool = self.registry.get(tool_call.name)
         if tool is None:
-            error = validator.check_tool_exists(tool_call, self.registry)
+            error = check_tool_exists(tool_call, self.registry)
             return self._fail(tool_call, "tool_not_found", error or "工具不存在")
 
         # 2. 参数 schema 校验
-        errors = validator.validate_tool_input(tool_call, tool.definition.input_schema)
+        errors = validate_tool_input(tool_call, tool.definition.input_schema)
         if errors:
             return self._fail(tool_call, "invalid_input", "；".join(errors))
 
