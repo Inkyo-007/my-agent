@@ -1,0 +1,53 @@
+[project]
+name = "my-agent"
+version = "0.1.0"
+description = "个人 Agent 应用"
+requires-python = ">=3.10"
+dependencies = [
+    "openai==3.13.0",
+    "anthropic==1.7.0",
+    "jsonschema==4.26.0",
+    "python-dotenv==1.2.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "poethepoet>=0.30",
+    "ruff>=0.9",
+]
+
+# pytest 配置（自 pytest.ini 迁入，单一配置来源）
+[tool.pytest.ini_options]
+pythonpath = [".", "test"]
+testpaths = ["test"]
+asyncio_mode = "auto"
+markers = [
+    "live: 真实 API 调用（消耗额度，需手动指定运行：pytest -m live）",
+]
+addopts = "-m \"not live\""
+
+# 任务入口：uv run poe <task>
+[tool.poe.tasks]
+test = "pytest"
+test-live = "pytest -m live"
+lint = "ruff check ."
+format = "ruff format ."
+format-check = "ruff format --check ."
+
+# 提交前自检：lint + 格式检查 + 离线测试
+[tool.poe.tasks.check]
+sequence = ["lint", "format-check", "test"]
+
+[tool.ruff]
+target-version = "py310"
+# 中文注释与文档字符串按字符计长，E501 单独关闭而非放宽行宽
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
