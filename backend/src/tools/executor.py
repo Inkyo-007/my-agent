@@ -12,11 +12,11 @@ error_type 是稳定契约（上述五个值），供 UI/审计/循环分类消�
 
 import asyncio
 import time
-from typing import Any, Callable, List
+from typing import Callable, List
 
 from ..core import (
-    Event,
     EventBus,
+    EventEmitter,
     EventType,
     HookVerdict,
     ToolCall,
@@ -48,11 +48,12 @@ class ToolExecutor:
     ):
         self.registry = registry
         self.hooks = hooks or []  # 空链 = 全部放行
-        self.event_bus = event_bus  # None = 静默（事件是通知，不是刚需）
+        # None = 静默（事件是通知，不是刚需）
+        self._events = EventEmitter(event_bus, source="tool_executor")
 
     async def execute(self, tool_call: ToolCall) -> ToolResult:
         """执行一次工具调用，永远返回 ToolResult，不向调用方抛异常"""
-        self._emit(
+        self._events.emit(
             EventType.TOOL_EXECUTION_START,
             f"开始执行工具 {tool_call.name}",
             tool_name=tool_call.name,
@@ -104,7 +105,7 @@ class ToolExecutor:
                 execution_time=elapsed,
             )
 
-        self._emit(
+        self._events.emit(
             EventType.TOOL_EXECUTION_END,
             f"工具 {tool_call.name} 执行成功",
             tool_name=tool_call.name,
@@ -120,7 +121,7 @@ class ToolExecutor:
         execution_time: float = 0.0,
     ) -> ToolResult:
         """统一构造失败结果并发射失败事件"""
-        self._emit(
+        self._events.emit(
             EventType.TOOL_EXECUTION_FAILED,
             message,
             tool_name=tool_call.name,
@@ -133,15 +134,3 @@ class ToolExecutor:
             execution_time=execution_time,
             error_type=error_type,
         )
-
-    def _emit(self, event_type: EventType, content: str, **metadata: Any) -> None:
-        """发射事件；event_bus 为 None 时静默"""
-        if self.event_bus is not None:
-            self.event_bus.publish(
-                Event(
-                    type=event_type,
-                    source="tool_executor",
-                    content=content,
-                    metadata=metadata,
-                )
-            )

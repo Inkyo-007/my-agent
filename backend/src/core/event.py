@@ -79,3 +79,34 @@ class EventBus(ABC):
     def subscribe(self, handler: Callable[[Event], None]) -> None:
         """订阅全部事件；按类型过滤由订阅者自行处理"""
         pass
+
+
+class EventEmitter:
+    """事件发射助手：各编排类发射事件的统一入口
+
+    放在 core 的原因：tools、runtime、security 等相互独立的功能层都需要
+    发射事件，跨层共用的代码只能向内收敛到 core（星型依赖方向）。
+
+    职责只有三样（请勿加宽）：
+    1. bus 为 None 时静默——「事件是通知，不是刚需」的物理载体；
+    2. 打 source 标签——发射方身份的统一出处；
+    3. 构造 Event 并 publish——消除每个发射类重复编写的样板。
+
+    过滤、批处理、异步投递等不属于这里：那是总线实现或订阅者的事。
+    """
+
+    def __init__(self, bus: EventBus | None, source: str):
+        self._bus = bus
+        self._source = source
+
+    def emit(self, event_type: EventType, content: str, **metadata: Any) -> None:
+        """发射一个事件；构造时 bus 为 None 则完全静默"""
+        if self._bus is not None:
+            self._bus.publish(
+                Event(
+                    type=event_type,
+                    source=self._source,
+                    content=content,
+                    metadata=metadata,
+                )
+            )

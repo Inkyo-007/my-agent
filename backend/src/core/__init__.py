@@ -1,5 +1,5 @@
 from .agent import Agent, AgentState, ExecutionResult
-from .event import Event, EventBus, EventType
+from .event import Event, EventBus, EventEmitter, EventType
 from .message import (
     Message,
     MessageRole,
@@ -34,6 +34,7 @@ __all__ = [
     "ToolResultMessage",
     "Event",
     "EventBus",
+    "EventEmitter",
     "EventType",
     "Tool",
     "ToolCall",
