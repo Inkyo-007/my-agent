@@ -4,6 +4,7 @@
 tool_result 合并规则、扩展思考（手动预算 / 自适应）等协议知识都封装在本文件。
 """
 
+import logging
 from typing import Any, AsyncGenerator, Dict, List
 
 from ..core import (
@@ -19,6 +20,8 @@ from .config import ModelConfig
 
 # 延迟导入，避免未安装时直接报错
 _anthropic = None
+
+logger = logging.getLogger(__name__)
 
 
 def _get_anthropic() -> Any:
@@ -240,13 +243,21 @@ class ClaudeProvider(BaseProvider):
             if m.role == "assistant":
                 blocks: List[Dict[str, Any]] = []
                 if m.thinking:
-                    blocks.append(
-                        {
-                            "type": "thinking",
-                            "thinking": m.thinking,
-                            "signature": m.thinking_signature,
-                        }
-                    )
+                    if m.thinking_signature:
+                        blocks.append(
+                            {
+                                "type": "thinking",
+                                "thinking": m.thinking,
+                                "signature": m.thinking_signature,
+                            }
+                        )
+                    else:
+                        # Anthropic 对无签名的 thinking block 报 400，跳过不回传；
+                        # 思考只是上下文增强，丢失不影响对话继续（无损转换在
+                        # runtime/convert 层，回传取舍属于协议知识，收在本层）
+                        logger.warning(
+                            "跳过无签名的 thinking block（Anthropic 要求签名校验）"
+                        )
                 if m.redacted_thinking:
                     blocks.append(
                         {

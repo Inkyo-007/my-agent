@@ -61,6 +61,7 @@ Anthropic 侧的自适应模式是**显式声明**的，不依赖「只传强度
 - **Anthropic 侧未经真实 API 验证**：目前全部测试是打桩的离线测试，待有 API key 后需补真实契约测试（重点：思考回传、工具调用闭环、adaptive 实际行为）；
 - **模型版本兼容**：手动预算模式在 Opus 4.7+ 已被移除（传了会报错）；adaptive 模式是 Opus 4.6 引入的，更老的模型不支持；
 - **协议保真的取舍**：协议层消息用扁平字段（单份思考文本 + 单份签名），在当前模型与用法下够用；但启用 Anthropic 的 interleaved-thinking beta（多段思考交错）时会有损，届时需要升级为保留完整块序列的方案。
+- **无签名的 thinking 不回传（仅 Anthropic）**：历史消息中有思考内容但无签名时（如来自其他 Provider 的历史），`ClaudeProvider` 跳过该 thinking block 并记录日志——Anthropic 对无签名的 thinking block 报 400。OpenAI 兼容服务无此限制，`reasoning_content` 始终回传。
 
 ## 如何接入一个新的模型服务
 

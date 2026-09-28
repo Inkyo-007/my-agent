@@ -297,6 +297,16 @@ class Test消息序列化:
         assert blocks[0] == {"type": "redacted_thinking", "data": "encrypted-data"}
         assert blocks[1] == {"type": "text", "text": "答"}
 
+    async def test_无签名的thinking不回传(self, provider):
+        """Anthropic 对无签名的 thinking block 报 400：有思考但无签名时跳过该块"""
+        msgs = [
+            ProviderMessage(role="user", content="hi"),
+            ProviderMessage(role="assistant", content="答", thinking="无签名的思考"),
+        ]
+        await provider.complete(msgs)
+        blocks = provider.captured["messages"][1]["content"]
+        assert blocks == [{"type": "text", "text": "答"}]
+
     async def test_tool角色消息转为user消息的tool_result(self, provider):
         msgs = [
             ProviderMessage(role="user", content="北京天气？"),
