@@ -13,7 +13,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Generator, List
+from typing import Any, AsyncGenerator, Dict, List
 
 from .tool import Tool, ToolCall
 
@@ -87,10 +87,11 @@ class BaseProvider(ABC):
 
     注意：本类不定义 __init__——如何构造（需要什么配置）是实现自己的
     事情，端口只承诺 complete/stream 两个行为。
+    两个行为都是异步的：agent 循环是异步编排，契约与之一致。
     """
 
     @abstractmethod
-    def complete(
+    async def complete(
         self, messages: List[ProviderMessage], tools: List[Tool] | None = None
     ) -> ProviderResponse:
         """非流式请求"""
@@ -99,6 +100,6 @@ class BaseProvider(ABC):
     @abstractmethod
     def stream(
         self, messages: List[ProviderMessage], tools: List[Tool] | None = None
-    ) -> Generator[StreamProviderResponse, None, None]:
-        """流式请求"""
+    ) -> AsyncGenerator[StreamProviderResponse, None]:
+        """流式请求：返回异步生成器，调用方以 async for 消费事件"""
         pass

@@ -27,54 +27,57 @@ def make_stubbed_provider(**config_overrides) -> StubbedOpenAIProvider:
         )
     )
     p.captured = {}
-    p.client.chat.completions.create = lambda **kw: (
-        p.captured.update(kw) or make_response()
-    )
+
+    async def fake_create(**kw):
+        p.captured.update(kw)
+        return make_response()
+
+    p.client.chat.completions.create = fake_create
     return p
 
 
-def ask(p, content="hi"):
-    return p.complete([ProviderMessage(role="user", content=content)])
+async def ask(p, content="hi"):
+    return await p.complete([ProviderMessage(role="user", content=content)])
 
 
 class Test请求组装:
     """验证 complete() 发往 API 的参数"""
 
-    def test_默认发送max_tokens(self, provider):
-        ask(provider)
+    async def test_默认发送max_tokens(self, provider):
+        await ask(provider)
         assert provider.captured["max_tokens"] == 4096
         assert "max_completion_tokens" not in provider.captured
         assert "reasoning_effort" not in provider.captured
         assert "extra_body" not in provider.captured
 
-    def test_o系列使用max_completion_tokens(self):
+    async def test_o系列使用max_completion_tokens(self):
         p = make_stubbed_provider(
             max_tokens=8000,
             max_tokens_param="max_completion_tokens",
             reasoning_effort="high",
         )
-        ask(p)
+        await ask(p)
         assert p.captured["max_completion_tokens"] == 8000
         assert "max_tokens" not in p.captured
         assert p.captured["reasoning_effort"] == "high"
 
-    def test_extra_body原样透传(self):
+    async def test_extra_body原样透传(self):
         thinking_on = {"thinking": {"type": "enabled"}}
         p = make_stubbed_provider(extra_body=thinking_on)
-        ask(p)
+        await ask(p)
         assert p.captured["extra_body"] == thinking_on
 
-    def test_历史消息回传reasoning_content(self, provider):
+    async def test_历史消息回传reasoning_content(self, provider):
         msgs = [
             ProviderMessage(role="user", content="北京天气？"),
             ProviderMessage(role="assistant", content="晴", thinking="需要查天气工具"),
         ]
-        provider.complete(msgs)
+        await provider.complete(msgs)
         sent = provider.captured["messages"]
         assert sent[1]["reasoning_content"] == "需要查天气工具"
         assert "reasoning_content" not in sent[0]  # 无思考的消息不带该字段
 
-    def test_assistant消息回传tool_calls(self, provider):
+    async def test_assistant消息回传tool_calls(self, provider):
         msgs = [
             ProviderMessage(role="user", content="北京天气？"),
             ProviderMessage(
@@ -86,7 +89,7 @@ class Test请求组装:
                 ],
             ),
         ]
-        provider.complete(msgs)
+        await provider.complete(msgs)
         sent = provider.captured["messages"][1]
         assert (
             sent["tool_calls"]
@@ -102,7 +105,7 @@ class Test请求组装:
             ]
         )
 
-    def test_tool角色消息回传tool_call_id(self, provider):
+    async def test_tool角色消息回传tool_call_id(self, provider):
         msgs = [
             ProviderMessage(role="user", content="北京天气？"),
             ProviderMessage(
@@ -114,14 +117,14 @@ class Test请求组装:
             ),
             ProviderMessage(role="tool", content="晴", tool_call_id="call_1"),
         ]
-        provider.complete(msgs)
+        await provider.complete(msgs)
         tool_msg = provider.captured["messages"][2]
         assert tool_msg == {"role": "tool", "content": "晴", "tool_call_id": "call_1"}
         assert "tool_calls" not in tool_msg
         assert "reasoning_content" not in tool_msg
 
-    def test_tools转换为OpenAI格式(self, provider):
-        provider.complete(
+    async def test_tools转换为OpenAI格式(self, provider):
+        await provider.complete(
             [ProviderMessage(role="user", content="hi")], tools=[WeatherTool()]
         )
         tools = provider.captured["tools"]
@@ -142,11 +145,14 @@ class Test请求组装:
             }
         ]
 
-    def test_stream请求开启usage统计(self, provider):
-        provider.client.chat.completions.create = lambda **kw: (
-            provider.captured.update(kw) or FakeStream([])
-        )
-        list(provider.stream([ProviderMessage(role="user", content="hi")]))
+    async def test_stream请求开启usage统计(self, provider):
+        async def fake_create(**kw):
+            provider.captured.update(kw)
+            return FakeStream([])
+
+        provider.client.chat.completions.create = fake_create
+        async for _ in provider.stream([ProviderMessage(role="user", content="hi")]):
+            pass
         assert provider.captured["stream"] is True
         assert provider.captured["stream_options"] == {"include_usage": True}
 
@@ -154,48 +160,48 @@ class Test请求组装:
 class Test响应解析:
     """验证 complete() 对 API 响应的处理"""
 
-    def test_基本字段解析(self, provider):
+    async def test_基本字段解析(self, provider):
         provider.stubbed_response = make_response(
             content="答", thinking="想", total_tokens=42
         )
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.content == "答"
         assert resp.thinking == "想"
         assert resp.token_used == 42
         assert resp.finish_reason == "stop"
 
-    def test_content为None时转为空字符串(self, provider):
+    async def test_content为None时转为空字符串(self, provider):
         provider.stubbed_response = make_response(content=None)
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.content == ""
 
-    def test_tool_calls解析为ToolCall对象(self, provider):
+    async def test_tool_calls解析为ToolCall对象(self, provider):
         provider.stubbed_response = make_response(
             content=None,
             tool_calls=[make_tool_call()],
             finish_reason="tool_calls",
         )
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.tool_calls == [
             ToolCall(id="call_1", name="get_weather", input={"city": "北京"})
         ]
 
-    def test_arguments非法JSON时容错为空字典(self, provider):
+    async def test_arguments非法JSON时容错为空字典(self, provider):
         provider.stubbed_response = make_response(
             content=None,
             tool_calls=[make_tool_call(arguments="{坏掉的json")],
         )
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.tool_calls[0].input == {}
 
-    def test_usage缺失时token_used为0(self, provider):
+    async def test_usage缺失时token_used为0(self, provider):
         provider.stubbed_response = make_response(total_tokens=0)  # usage=None
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.token_used == 0
 
-    def test_无思考内容时thinking为None(self, provider):
+    async def test_无思考内容时thinking为None(self, provider):
         provider.stubbed_response = make_response(content="答", thinking=None)
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.thinking is None
 
 
@@ -203,19 +209,23 @@ class Test响应解析:
 
 
 class FakeStream:
-    """伪造的流对象：支持 with 协议与迭代（与 SDK 的 Stream 行为一致）"""
+    """伪造的流对象：支持 async with 协议与异步迭代（与 SDK 的 AsyncStream 行为一致）"""
 
     def __init__(self, chunks):
         self._chunks = chunks
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, *args):
+    async def __aexit__(self, *args):
         return False
 
-    def __iter__(self):
-        return iter(self._chunks)
+    def __aiter__(self):
+        return self._iterate()
+
+    async def _iterate(self):
+        for chunk in self._chunks:
+            yield chunk
 
 
 def make_chunk(
@@ -252,13 +262,16 @@ def make_tool_delta(index=0, call_id=None, name=None, arguments=None):
     return SimpleNamespace(index=index, id=call_id, type="function", function=function)
 
 
-def stream_events(provider, chunks):
-    provider.client.chat.completions.create = lambda **kw: FakeStream(chunks)
-    return list(provider.stream([ProviderMessage(role="user", content="hi")]))
+async def stream_events(provider, chunks):
+    async def fake_create(**kw):
+        return FakeStream(chunks)
+
+    provider.client.chat.completions.create = fake_create
+    return [e async for e in provider.stream([ProviderMessage(role="user", content="hi")])]
 
 
 class Test流式输出:
-    def test_完整事件序列(self, provider):
+    async def test_完整事件序列(self, provider):
         chunks = [
             make_chunk(role="assistant"),
             make_chunk(thinking="想想"),
@@ -268,7 +281,7 @@ class Test流式输出:
                 finish_reason="stop", total_tokens=42
             ),  # DeepSeek 形态：usage 挂在 finish chunk
         ]
-        events = stream_events(provider, chunks)
+        events = await stream_events(provider, chunks)
         types = [e.type for e in events]
         assert types == [
             StreamType.START,
@@ -280,7 +293,7 @@ class Test流式输出:
         assert events[-1].delta == {"finish_reason": "stop"}
         assert events[-1].token_used == 42
 
-    def test_官方形态usage在finish之后到达(self, provider):
+    async def test_官方形态usage在finish之后到达(self, provider):
         """官方 OpenAI：usage 是 finish chunk 之后的独立空 choices chunk，
         STOP 必须等流结束再发，保证 token_used 完整"""
         chunks = [
@@ -289,12 +302,12 @@ class Test流式输出:
             make_chunk(finish_reason="stop"),  # finish chunk 无 usage
             make_chunk(empty_choices=True, total_tokens=42),  # usage chunk 随后才到
         ]
-        events = stream_events(provider, chunks)
+        events = await stream_events(provider, chunks)
         assert events[-1].type == StreamType.STOP
         assert events[-1].delta == {"finish_reason": "stop"}
         assert events[-1].token_used == 42  # 不是 0！
 
-    def test_工具调用碎片透传(self, provider):
+    async def test_工具调用碎片透传(self, provider):
         chunks = [
             make_chunk(role="assistant"),
             make_chunk(
@@ -306,7 +319,7 @@ class Test流式输出:
             make_chunk(tool_calls=[make_tool_delta(arguments='京"}')]),
             make_chunk(finish_reason="tool_calls", total_tokens=10),
         ]
-        events = stream_events(provider, chunks)
+        events = await stream_events(provider, chunks)
         tc_events = [e for e in events if e.type == StreamType.TOOL_CALL_DELTA]
         # 首个碎片携带 id/name，后续碎片只携带 input 片段
         assert tc_events[0].delta == {
@@ -324,10 +337,10 @@ class Test流式输出:
         assert tc_events[2].delta["input"] == '京"}'
         assert events[-1].delta == {"finish_reason": "tool_calls"}
 
-    def test_无finish_reason时STOP标记为unknown(self, provider):
+    async def test_无finish_reason时STOP标记为unknown(self, provider):
         """流异常中断（finish_reason 从未出现）时，STOP 仍需兜底收尾"""
         chunks = [make_chunk(role="assistant"), make_chunk(content="你好")]
-        events = stream_events(provider, chunks)
+        events = await stream_events(provider, chunks)
         assert events[-1].type == StreamType.STOP
         assert events[-1].delta == {"finish_reason": "unknown"}
         assert events[-1].token_used == 0

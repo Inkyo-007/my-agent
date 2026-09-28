@@ -5,7 +5,7 @@
 """
 
 import json
-from typing import Any, Dict, Generator, List
+from typing import Any, AsyncGenerator, Dict, List
 
 from ..core import (
     BaseProvider,
@@ -36,14 +36,14 @@ class OpenAIProvider(BaseProvider):
         self.config = config
         openai = _get_openai()
         kwargs = self.config.client_kwargs()
-        self.client = openai.OpenAI(**kwargs)
+        self.client = openai.AsyncOpenAI(**kwargs)
 
-    def complete(
+    async def complete(
         self, messages: List[ProviderMessage], tools: List[Tool] | None = None
     ) -> ProviderResponse:
         kwargs = self._build_request_kwargs(messages, tools)
 
-        response = self.client.chat.completions.create(**kwargs)
+        response = await self.client.chat.completions.create(**kwargs)
         choice = response.choices[0]
         message = choice.message
 
@@ -73,9 +73,9 @@ class OpenAIProvider(BaseProvider):
             tool_calls=tool_calls,
         )
 
-    def stream(
+    async def stream(
         self, messages: List[ProviderMessage], tools: List[Tool] | None = None
-    ) -> Generator[StreamProviderResponse, None, None]:
+    ) -> AsyncGenerator[StreamProviderResponse, None]:
         kwargs = self._build_request_kwargs(messages, tools)
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
@@ -84,8 +84,9 @@ class OpenAIProvider(BaseProvider):
         token_used = 0
         finish_reason = None
 
-        with self.client.chat.completions.create(**kwargs) as stream:
-            for chunk in stream:
+        stream = await self.client.chat.completions.create(**kwargs)
+        async with stream:
+            async for chunk in stream:
                 # 暂存 token 使用情况。usage 的位置随厂商不同：
                 # DeepSeek 挂在 finish chunk 上；官方 OpenAI 在 finish chunk 之后
                 # 单独发一个 choices 为空的 chunk。因此每个 chunk 都检查。

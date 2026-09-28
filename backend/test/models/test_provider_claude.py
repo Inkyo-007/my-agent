@@ -62,19 +62,23 @@ def make_claude_response(
 
 
 class FakeStream:
-    """伪造的流对象：支持 with 协议与迭代（与 SDK 的 Stream 行为一致）"""
+    """伪造的流对象：支持 async with 协议与异步迭代（与 SDK 的 AsyncStream 行为一致）"""
 
     def __init__(self, events):
         self._events = events
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, *args):
+    async def __aexit__(self, *args):
         return False
 
-    def __iter__(self):
-        return iter(self._events)
+    def __aiter__(self):
+        return self._iterate()
+
+    async def _iterate(self):
+        for event in self._events:
+            yield event
 
 
 def ev_message_start(input_tokens=10):
@@ -127,9 +131,12 @@ def make_stubbed_provider(**config_overrides) -> StubbedClaudeProvider:
         )
     )
     p.captured = {}
-    p.client.messages.create = lambda **kw: (
-        p.captured.update(kw) or make_claude_response([text_block("ok")])
-    )
+
+    async def fake_create(**kw):
+        p.captured.update(kw)
+        return make_claude_response([text_block("ok")])
+
+    p.client.messages.create = fake_create
     return p
 
 
@@ -146,7 +153,7 @@ def provider():
     p.captured = {}
     p.stubbed_response = make_claude_response([text_block("你好")])
 
-    def fake_create(**kwargs):
+    async def fake_create(**kwargs):
         p.captured = kwargs
         return p.stubbed_response
 
@@ -154,83 +161,83 @@ def provider():
     return p
 
 
-def ask(p, content="hi"):
-    return p.complete([ProviderMessage(role="user", content=content)])
+async def ask(p, content="hi"):
+    return await p.complete([ProviderMessage(role="user", content=content)])
 
 
 # ---------- 请求组装 ----------
 
 
 class Test请求组装:
-    def test_max_tokens必填传入(self, provider):
-        ask(provider)
+    async def test_max_tokens必填传入(self, provider):
+        await ask(provider)
         assert provider.captured["max_tokens"] == 4096
         assert provider.captured["model"] == "claude-test"
 
-    def test_system消息剥离为顶层参数(self, provider):
+    async def test_system消息剥离为顶层参数(self, provider):
         msgs = [
             ProviderMessage(role="system", content="你是一个助手"),
             ProviderMessage(role="user", content="hi"),
         ]
-        provider.complete(msgs)
+        await provider.complete(msgs)
         assert provider.captured["system"] == "你是一个助手"
         # messages 中不应再出现 system 角色
         assert all(m["role"] != "system" for m in provider.captured["messages"])
 
-    def test_多条system消息合并为顶层参数(self, provider):
+    async def test_多条system消息合并为顶层参数(self, provider):
         msgs = [
             ProviderMessage(role="system", content="第一部分"),
             ProviderMessage(role="system", content="第二部分"),
             ProviderMessage(role="user", content="hi"),
         ]
-        provider.complete(msgs)
+        await provider.complete(msgs)
         assert provider.captured["system"] == "第一部分\n\n第二部分"
 
-    def test_extra_body原样透传(self, provider):
+    async def test_extra_body原样透传(self, provider):
         provider.config.extra_body = {"some_vendor_flag": True}
-        ask(provider)
+        await ask(provider)
         assert provider.captured["extra_body"] == {"some_vendor_flag": True}
 
-    def test_开启扩展思考(self):
+    async def test_开启扩展思考(self):
         p = make_stubbed_provider(max_tokens=8000, thinking_budget=5000)
-        ask(p)
+        await ask(p)
         assert p.captured["thinking"] == {"type": "enabled", "budget_tokens": 5000}
 
-    def test_thinking预算不小于max_tokens时抛错(self):
+    async def test_thinking预算不小于max_tokens时抛错(self):
         p = make_stubbed_provider(max_tokens=1000, thinking_budget=5000)
         with pytest.raises(ValueError):
-            ask(p)
+            await ask(p)
 
-    def test_thinking预算小于1024时抛错(self):
+    async def test_thinking预算小于1024时抛错(self):
         p = make_stubbed_provider(max_tokens=8000, thinking_budget=512)
         with pytest.raises(ValueError, match="1024"):
-            ask(p)
+            await ask(p)
 
-    def test_reasoning_effort触发adaptive思考(self):
+    async def test_reasoning_effort触发adaptive思考(self):
         p = make_stubbed_provider(reasoning_effort="high")
-        ask(p)
+        await ask(p)
         # 显式声明 adaptive，不依赖 API 默认行为
         assert p.captured["thinking"] == {"type": "adaptive"}
         assert p.captured["output_config"] == {"effort": "high"}
 
-    def test_thinking预算优先于adaptive(self):
+    async def test_thinking预算优先于adaptive(self):
         # 同时设置 budget 和 effort 时，走手动预算模式，不发 adaptive
         p = make_stubbed_provider(
             max_tokens=8000,
             thinking_budget=5000,
             reasoning_effort="high",
         )
-        ask(p)
+        await ask(p)
         assert p.captured["thinking"] == {"type": "enabled", "budget_tokens": 5000}
         assert p.captured["output_config"] == {"effort": "high"}
 
-    def test_默认不开启思考(self, provider):
-        ask(provider)
+    async def test_默认不开启思考(self, provider):
+        await ask(provider)
         assert "thinking" not in provider.captured
         assert "output_config" not in provider.captured
 
-    def test_tools转换为Anthropic格式(self, provider):
-        provider.complete(
+    async def test_tools转换为Anthropic格式(self, provider):
+        await provider.complete(
             [ProviderMessage(role="user", content="hi")], tools=[WeatherTool()]
         )
         tools = provider.captured["tools"]
@@ -252,7 +259,7 @@ class Test请求组装:
 
 
 class Test消息序列化:
-    def test_assistant消息重建为block列表(self, provider):
+    async def test_assistant消息重建为block列表(self, provider):
         msgs = [
             ProviderMessage(role="user", content="北京天气？"),
             ProviderMessage(
@@ -265,7 +272,7 @@ class Test消息序列化:
                 ],
             ),
         ]
-        provider.complete(msgs)
+        await provider.complete(msgs)
         blocks = provider.captured["messages"][1]["content"]
         assert blocks == [
             {"type": "thinking", "thinking": "先想想", "signature": "sig_abc"},
@@ -278,19 +285,19 @@ class Test消息序列化:
             },
         ]
 
-    def test_redacted_thinking原样回传(self, provider):
+    async def test_redacted_thinking原样回传(self, provider):
         msgs = [
             ProviderMessage(role="user", content="hi"),
             ProviderMessage(
                 role="assistant", content="答", redacted_thinking="encrypted-data"
             ),
         ]
-        provider.complete(msgs)
+        await provider.complete(msgs)
         blocks = provider.captured["messages"][1]["content"]
         assert blocks[0] == {"type": "redacted_thinking", "data": "encrypted-data"}
         assert blocks[1] == {"type": "text", "text": "答"}
 
-    def test_tool角色消息转为user消息的tool_result(self, provider):
+    async def test_tool角色消息转为user消息的tool_result(self, provider):
         msgs = [
             ProviderMessage(role="user", content="北京天气？"),
             ProviderMessage(
@@ -302,7 +309,7 @@ class Test消息序列化:
             ),
             ProviderMessage(role="tool", content="晴", tool_call_id="toolu_1"),
         ]
-        provider.complete(msgs)
+        await provider.complete(msgs)
         sent = provider.captured["messages"]
         assert sent[2] == {
             "role": "user",
@@ -311,7 +318,7 @@ class Test消息序列化:
             ],
         }
 
-    def test_连续tool消息合并为一条user消息(self, provider):
+    async def test_连续tool消息合并为一条user消息(self, provider):
         msgs = [
             ProviderMessage(role="user", content="天气？"),
             ProviderMessage(
@@ -325,7 +332,7 @@ class Test消息序列化:
             ProviderMessage(role="tool", content="晴", tool_call_id="toolu_1"),
             ProviderMessage(role="tool", content="多云", tool_call_id="toolu_2"),
         ]
-        provider.complete(msgs)
+        await provider.complete(msgs)
         sent = provider.captured["messages"]
         assert len(sent) == 3  # 两条 tool 合并后总消息数不变多
         assert sent[2]["role"] == "user"
@@ -339,51 +346,51 @@ class Test消息序列化:
 
 
 class Test响应解析:
-    def test_多个text块拼接(self, provider):
+    async def test_多个text块拼接(self, provider):
         provider.stubbed_response = make_claude_response(
             [text_block("你好"), text_block("世界")]
         )
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.content == "你好世界"
 
-    def test_thinking与signature提取(self, provider):
+    async def test_thinking与signature提取(self, provider):
         provider.stubbed_response = make_claude_response(
             [thinking_block("想想", "sig_1"), text_block("答")]
         )
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.thinking == "想想"
         assert resp.thinking_signature == "sig_1"
 
-    def test_redacted_thinking提取(self, provider):
+    async def test_redacted_thinking提取(self, provider):
         provider.stubbed_response = make_claude_response(
             [redacted_block("enc-123"), text_block("答")]
         )
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.redacted_thinking == "enc-123"
         assert resp.thinking is None  # 加密思考没有明文
 
-    def test_tool_use解析为ToolCall(self, provider):
+    async def test_tool_use解析为ToolCall(self, provider):
         provider.stubbed_response = make_claude_response(
             [text_block("查一下"), tool_use_block()], stop_reason="tool_use"
         )
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.tool_calls == [
             ToolCall(id="toolu_1", name="get_weather", input={"city": "北京"})
         ]
         assert resp.finish_reason == "tool_use"
 
-    def test_token_used为input与output之和(self, provider):
+    async def test_token_used为input与output之和(self, provider):
         provider.stubbed_response = make_claude_response(
             [text_block("答")], input_tokens=100, output_tokens=50
         )
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.token_used == 150
 
-    def test_usage缺失时token_used为0(self, provider):
+    async def test_usage缺失时token_used为0(self, provider):
         provider.stubbed_response = make_claude_response(
             [text_block("答")], with_usage=False
         )
-        resp = ask(provider)
+        resp = await ask(provider)
         assert resp.token_used == 0
 
 
@@ -399,10 +406,17 @@ class Test流式输出:
                 api_key="fake-key",
             )
         )
-        p.client.messages.create = lambda **kw: FakeStream(events)
+
+        async def fake_create(**kw):
+            return FakeStream(events)
+
+        p.client.messages.create = fake_create
         return p
 
-    def test_思考与正文的完整事件序列(self):
+    async def _collect(self, p):
+        return [e async for e in p.stream([ProviderMessage(role="user", content="hi")])]
+
+    async def test_思考与正文的完整事件序列(self):
         events = [
             ev_message_start(input_tokens=10),
             ev_block_start(
@@ -418,7 +432,7 @@ class Test流式输出:
             SimpleNamespace(type="message_stop"),
         ]
         p = self._stream_provider(events)
-        stream_events = list(p.stream([ProviderMessage(role="user", content="hi")]))
+        stream_events = await self._collect(p)
 
         types = [e.type for e in stream_events]
         assert types == [
@@ -434,7 +448,7 @@ class Test流式输出:
         assert stream_events[4].delta == {"finish_reason": "end_turn"}
         assert stream_events[4].token_used == 40  # 10 input + 30 output
 
-    def test_工具调用事件(self):
+    async def test_工具调用事件(self):
         events = [
             ev_message_start(input_tokens=10),
             ev_block_start(
@@ -453,7 +467,7 @@ class Test流式输出:
             ev_message_delta(stop_reason="tool_use", output_tokens=20),
         ]
         p = self._stream_provider(events)
-        stream_events = list(p.stream([ProviderMessage(role="user", content="hi")]))
+        stream_events = await self._collect(p)
 
         tc_events = [e for e in stream_events if e.type == StreamType.TOOL_CALL_DELTA]
         # start 事件携带 id/name，delta 事件携带 input 碎片（partial_json）
@@ -472,7 +486,7 @@ class Test流式输出:
         assert tc_events[2].delta["input"] == ' "北京"}'
         assert stream_events[-1].delta == {"finish_reason": "tool_use"}
 
-    def test_redacted_thinking在start事件一次性给出(self):
+    async def test_redacted_thinking在start事件一次性给出(self):
         events = [
             ev_message_start(input_tokens=10),
             ev_block_start(
@@ -482,7 +496,7 @@ class Test流式输出:
             ev_message_delta(),
         ]
         p = self._stream_provider(events)
-        stream_events = list(p.stream([ProviderMessage(role="user", content="hi")]))
+        stream_events = await self._collect(p)
 
         thinking_events = [
             e for e in stream_events if e.type == StreamType.THINKING_DELTA
@@ -490,7 +504,7 @@ class Test流式输出:
         assert len(thinking_events) == 1
         assert thinking_events[0].delta == {"redacted_thinking": "enc-123"}
 
-    def test_message_delta无usage时输出token计0(self):
+    async def test_message_delta无usage时输出token计0(self):
         """usage 缺失时 output_tokens 兜底为 0，STOP 只携带 input_tokens"""
         events = [
             ev_message_start(input_tokens=10),
@@ -501,6 +515,6 @@ class Test流式输出:
             ),
         ]
         p = self._stream_provider(events)
-        stream_events = list(p.stream([ProviderMessage(role="user", content="hi")]))
+        stream_events = await self._collect(p)
         assert stream_events[-1].type == StreamType.STOP
         assert stream_events[-1].token_used == 10

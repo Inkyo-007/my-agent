@@ -40,18 +40,18 @@ def live_provider():
     )
 
 
-def test_思考模式下thinking和content都非空(live_provider):
-    resp = live_provider.complete(
+async def test_思考模式下thinking和content都非空(live_provider):
+    resp = await live_provider.complete(
         [ProviderMessage(role="user", content="9.11 和 9.9 哪个大？")]
     )
     assert resp.thinking, "思考模式开启时 thinking 不应为空"
     assert resp.content, "最终回答不应为空"
 
 
-def test_带tools时回传reasoning_content不报400(live_provider):
+async def test_带tools时回传reasoning_content不报400(live_provider):
     """DeepSeek 规则：携带 tools 的请求必须完整回传历史 reasoning_content"""
     msgs = [ProviderMessage(role="user", content="北京今天天气怎么样？请用工具查询。")]
-    resp1 = live_provider.complete(msgs, tools=[WeatherTool()])
+    resp1 = await live_provider.complete(msgs, tools=[WeatherTool()])
 
     msgs.append(
         ProviderMessage(
@@ -59,6 +59,6 @@ def test_带tools时回传reasoning_content不报400(live_provider):
         )
     )
     msgs.append(ProviderMessage(role="user", content="那上海呢？"))
-    resp2 = live_provider.complete(msgs, tools=[WeatherTool()])
+    resp2 = await live_provider.complete(msgs, tools=[WeatherTool()])
 
     assert resp2.finish_reason in ("stop", "tool_calls", "length")

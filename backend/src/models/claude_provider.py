@@ -4,7 +4,7 @@
 tool_result 合并规则、扩展思考（手动预算 / 自适应）等协议知识都封装在本文件。
 """
 
-from typing import Any, Dict, Generator, List
+from typing import Any, AsyncGenerator, Dict, List
 
 from ..core import (
     BaseProvider,
@@ -35,14 +35,14 @@ class ClaudeProvider(BaseProvider):
         self.config = config
         anthropic = _get_anthropic()
         kwargs = self.config.client_kwargs()
-        self.client = anthropic.Anthropic(**kwargs)
+        self.client = anthropic.AsyncAnthropic(**kwargs)
 
-    def complete(
+    async def complete(
         self, messages: List[ProviderMessage], tools: List[Tool] | None = None
     ) -> ProviderResponse:
         kwargs = self._build_request_kwargs(messages, tools)
 
-        response = self.client.messages.create(**kwargs)
+        response = await self.client.messages.create(**kwargs)
 
         text_parts: List[str] = []
         thinking_parts: List[str] = []
@@ -83,9 +83,9 @@ class ClaudeProvider(BaseProvider):
             tool_calls=tool_calls,
         )
 
-    def stream(
+    async def stream(
         self, messages: List[ProviderMessage], tools: List[Tool] | None = None
-    ) -> Generator[StreamProviderResponse, None, None]:
+    ) -> AsyncGenerator[StreamProviderResponse, None]:
         kwargs = self._build_request_kwargs(messages, tools)
         kwargs["stream"] = True
 
@@ -93,8 +93,9 @@ class ClaudeProvider(BaseProvider):
         input_tokens = 0
         output_tokens = 0
 
-        with self.client.messages.create(**kwargs) as stream:
-            for event in stream:
+        stream = await self.client.messages.create(**kwargs)
+        async with stream:
+            async for event in stream:
                 # 事件类型：message_start / content_block_start / content_block_delta /
                 #           content_block_stop / message_delta / message_stop
                 if event.type == "message_start":

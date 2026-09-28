@@ -27,7 +27,7 @@ def provider():
     p.captured = {}
     p.stubbed_response = make_response()
 
-    def fake_create(**kwargs):
+    async def fake_create(**kwargs):
         p.captured = kwargs
         return p.stubbed_response
 
