@@ -15,9 +15,11 @@ tools 层负责工具的注册、校验与执行。理解本层的关键是**机
 |---|---|
 | `registry.py` | `ToolRegistry`：工具的注册、注册时校验、按名查找 |
 | `validator.py` | 机械校验（存在性、参数 schema），纯函数、无状态 |
-| `executor.py` | `ToolExecutor`：执行流水线，含执行钩子与事件发射 |
+| `executor.py` | `ToolExecutor`：执行流水线，含执行钩子与事件发射；实现 core 的 `BaseToolExecutor` 端口 |
 
 三者的分工：注册表只管「存与取」，校验器只管「确定性检查」，执行器负责把各环节编排成流水线。任何一环的具体规则都不混进其他环节。
+
+执行器的调用契约（`execute(tool_call) -> ToolResult`）以 `BaseToolExecutor` 的形式定义在 core：runtime 等编排层只依赖该端口，本层是唯一实现方。端口只承诺「执行一次调用并返回结果」，钩子链、超时、事件发射等都是本层的实现细节，不进契约。
 
 ## 执行流水线
 

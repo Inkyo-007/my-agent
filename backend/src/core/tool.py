@@ -113,3 +113,18 @@ class Tool(ABC):
             "permission_required": self.definition.permission_required,
             "timeout_seconds": self.definition.timeout_seconds,
         }
+
+
+class BaseToolExecutor(ABC):
+    """工具执行器契约（端口）：ToolCall → ToolResult 的抽象
+
+    runtime 等编排层只依赖本接口，不认识 tools 层的具体实现。
+    契约只承诺一件事：执行一次工具调用并返回结果。
+    流水线细节（校验、钩子链、超时、事件发射）是实现自己的事，
+    具体实现见 tools/executor.py 的 ToolExecutor。
+    """
+
+    @abstractmethod
+    async def execute(self, tool_call: ToolCall) -> ToolResult:
+        """执行一次工具调用，永远返回 ToolResult，不向调用方抛异常"""
+        pass

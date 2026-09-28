@@ -15,6 +15,7 @@ import time
 from typing import Callable, List
 
 from ..core import (
+    BaseToolExecutor,
     EventBus,
     EventEmitter,
     EventType,
@@ -32,8 +33,8 @@ from .validator import check_tool_exists, validate_tool_input
 ExecutionHook = Callable[[ToolCall, ToolDefinition], HookVerdict]
 
 
-class ToolExecutor:
-    """工具执行器
+class ToolExecutor(BaseToolExecutor):
+    """工具执行器（core.BaseToolExecutor 端口的具体实现）
 
     职责边界：编排「查校验、过钩子、执行、包装结果」的流水线；
     校验的机械细节在 validator.py，权限策略在钩子实现（security），

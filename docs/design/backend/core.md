@@ -49,6 +49,7 @@ core 基本只包含**定义**（契约与数据类型），不实现任何功�
 - `ToolDefinition`：工具的自我描述——名字、说明、参数 schema、权限标签、超时时间。
 - `ToolCall` / `ToolResult`：一次工具调用的输入与输出。`ToolCall.input` 永远是字典（各家 API 的差异在 models 层被吸收）。
 - `HookVerdict`：执行钩子的裁决结果——放行或拦截。它与 `ToolResult` 同属「工具执行的反馈」：`ToolResult` 是执行之后的结果，`HookVerdict` 是执行之前的放行裁决。
+- `BaseToolExecutor`：工具执行器契约，只承诺一个行为——`execute(tool_call) -> ToolResult`。runtime 等编排层只依赖这个接口，不认识具体实现；流水线细节（校验、钩子链、超时、事件发射）由 tools 层的 `ToolExecutor` 实现承担。
 
 **权限标签公约**：`permission_required` 是字符串列表，格式约定为 `"{领域}:{动作}"`，如 `fs:read`、`fs:write`、`shell:execute`。声明是静态事实（这个工具会碰什么），策略判断（这次调用放不放行）由执行钩子负责。用字符串而非枚举是有意的：领域会不断生长，字符串不需要为此改动 core。
 

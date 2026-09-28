@@ -15,6 +15,7 @@ from .provider import (
     StreamType,
 )
 from .tool import (
+    BaseToolExecutor,
     HookVerdict,
     Tool,
     ToolCall,
@@ -42,6 +43,7 @@ __all__ = [
     "ToolInputSchema",
     "ToolResult",
     "HookVerdict",
+    "BaseToolExecutor",
     "BaseProvider",
     "ProviderMessage",
     "ProviderResponse",
