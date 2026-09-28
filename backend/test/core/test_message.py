@@ -50,13 +50,18 @@ class TestFromDict类型分发:
             role=MessageRole.ASSISTANT,
             type=MessageType.TOOL_USE,
             content="调用天气工具",
-            metadata={"tool_name": "get_weather", "tool_params": {"city": "北京"}},
+            metadata={
+                "tool_calls": [
+                    {"id": "c1", "name": "get_weather", "input": {"city": "北京"}}
+                ]
+            },
         )
         restored = Message.from_dict(original.to_dict())
         assert isinstance(restored, ToolCallMessage)
         # 子类属性访问器在往返后仍然有效
-        assert restored.tool_name == "get_weather"
-        assert restored.tool_params == {"city": "北京"}
+        assert restored.tool_calls == [
+            {"id": "c1", "name": "get_weather", "input": {"city": "北京"}}
+        ]
 
     def test_tool_result还原为ToolResultMessage(self):
         original = ToolResultMessage(
@@ -79,7 +84,7 @@ class TestFromDict类型分发:
             role=MessageRole.ASSISTANT,
             type=MessageType.TOOL_USE,
             content="调用",
-            metadata={"tool_name": "get_weather"},
+            metadata={"tool_calls": [{"id": "c1", "name": "get_weather", "input": {}}]},
         )
         restored = Message.from_dict(original.to_dict())
         assert restored.message_id == original.message_id

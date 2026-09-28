@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 class MessageRole(str, Enum):
@@ -84,17 +84,18 @@ class Message:
 
 @dataclass
 class ToolCallMessage(Message):
-    """工具调用消息类"""
+    """工具调用消息类
+
+    存储格式：metadata["tool_calls"] = [{"id", "name", "input"}, ...]
+    （JSON 可序列化的原始结构）。一次模型响应可能携带多个工具调用，
+    单次调用即长度为 1 的列表。
+    """
 
     @property
-    def tool_name(self) -> str:
-        value = self.metadata.get("tool_name")
-        return str(value) if value is not None else ""
-
-    @property
-    def tool_params(self) -> Dict[str, Any]:
-        value = self.metadata.get("tool_params", {})
-        return value if isinstance(value, dict) else {}
+    def tool_calls(self) -> List[Dict[str, Any]]:
+        """本轮消息携带的全部工具调用（原始字典结构）"""
+        value = self.metadata.get("tool_calls", [])
+        return value if isinstance(value, list) else []
 
 
 @dataclass
