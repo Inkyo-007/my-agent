@@ -267,7 +267,9 @@ async def stream_events(provider, chunks):
         return FakeStream(chunks)
 
     provider.client.chat.completions.create = fake_create
-    return [e async for e in provider.stream([ProviderMessage(role="user", content="hi")])]
+    return [
+        e async for e in provider.stream([ProviderMessage(role="user", content="hi")])
+    ]
 
 
 class Test流式输出:

@@ -79,7 +79,7 @@ runtime 只依赖 core 中定义的端口，不认识任何具体实现：
 - `message_from_tool_result(tool_call, result) -> ToolResultMessage`：工具结果 → 历史消息；
 - `to_provider_messages(messages) -> list[ProviderMessage]`：历史 → 喂模型的格式。
 
-**有损容忍策略**：缺思考签名时静默降级——不回传 thinking block（Anthropic 对无签名的 thinking block 会报错），并在消息 metadata 打上标记供审计。不抛异常：降级后模型只是失去思考上下文，仍能工作；抛异常会打断整个循环，代价不对等。
+**转换是无损的，回传取舍在 Provider 层**：缺思考签名时，convert 仍原样保留 thinking——因为 DeepSeek 强制要求回传 `reasoning_content`，在转换层丢弃会误伤 OpenAI 兼容服务。真正需要降级的只有 Anthropic（对无签名的 thinking block 报 400），由 `ClaudeProvider` 在组装请求时跳过该块并记录日志。「协议知识留在协议层」优先于「在一个地方降级」。
 
 ### 历史与转换分离
 

@@ -6,8 +6,9 @@
 import asyncio
 from typing import Any, Dict, List
 
+from fakes import CollectingBus
+
 from src.core import (
-    Event,
     EventBus,
     EventType,
     HookVerdict,
@@ -70,19 +71,6 @@ def make_executor(
     registry = ToolRegistry()
     registry.register(tool)
     return ToolExecutor(registry, hooks=hooks, event_bus=bus)
-
-
-class CollectingBus(EventBus):
-    """收集全部事件的测试总线"""
-
-    def __init__(self):
-        self.events: List[Event] = []
-
-    def publish(self, event: Event) -> None:
-        self.events.append(event)
-
-    def subscribe(self, handler) -> None:
-        pass
 
 
 def weather_call() -> ToolCall:

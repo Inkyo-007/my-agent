@@ -9,9 +9,21 @@ conftest.py 只保留 fixture（自动可见、无需 import），
 """
 
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any, AsyncGenerator, Dict, List
 
-from src.core import Tool, ToolDefinition, ToolInputSchema, ToolResult
+from src.core import (
+    BaseProvider,
+    Event,
+    EventBus,
+    ProviderMessage,
+    ProviderResponse,
+    StreamProviderResponse,
+    Tool,
+    ToolCall,
+    ToolDefinition,
+    ToolInputSchema,
+    ToolResult,
+)
 from src.models import OpenAIProvider
 
 
@@ -70,3 +82,67 @@ class StubbedOpenAIProvider(OpenAIProvider):
 
     captured: Dict[str, Any]
     stubbed_response: Any
+
+
+class CollectingBus(EventBus):
+    """收集全部事件的测试总线（不做过滤，断言时自行筛选）"""
+
+    def __init__(self):
+        self.events: List[Event] = []
+
+    def publish(self, event: Event) -> None:
+        self.events.append(event)
+
+    def subscribe(self, handler) -> None:
+        pass
+
+
+def make_provider_response(
+    content: str = "",
+    tool_calls: List[ToolCall] | None = None,
+    finish_reason: str = "stop",
+    token_used: int = 10,
+    thinking: str | None = None,
+    thinking_signature: str | None = None,
+    redacted_thinking: str | None = None,
+) -> ProviderResponse:
+    """构造一个 ProviderResponse（runtime 测试的脚本化响应）"""
+    return ProviderResponse(
+        content=content,
+        model="test-model",
+        finish_reason=finish_reason,
+        thinking=thinking,
+        thinking_signature=thinking_signature,
+        redacted_thinking=redacted_thinking,
+        token_used=token_used,
+        tool_calls=tool_calls or [],
+    )
+
+
+class ScriptedProvider(BaseProvider):
+    """脚本化 Provider：按预设队列依次返回响应，并记录每次收到的消息
+
+    - 队列元素为 ProviderResponse 时原样返回；为 Exception 时抛出（模拟调用失败）
+    - calls：每次 complete() 收到的 ProviderMessage 列表，用于断言
+      「第 N 次调用模型时喂进去的上下文长什么样」
+    """
+
+    def __init__(self, responses: List[Any]):
+        self._responses = list(responses)
+        self.calls: List[List[ProviderMessage]] = []
+
+    async def complete(
+        self, messages: List[ProviderMessage], tools: List[Tool] | None = None
+    ) -> ProviderResponse:
+        self.calls.append(list(messages))
+        if not self._responses:
+            raise AssertionError("ScriptedProvider 的响应队列已耗尽")
+        item = self._responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    def stream(
+        self, messages: List[ProviderMessage], tools: List[Tool] | None = None
+    ) -> AsyncGenerator[StreamProviderResponse, None]:
+        raise NotImplementedError("ScriptedProvider 不支持流式")
