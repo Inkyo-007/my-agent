@@ -30,3 +30,6 @@ htmlcov/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# 个人测试目录
+own_tests/
