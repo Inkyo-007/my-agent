@@ -1,4 +1,4 @@
-from .agent import Agent, AgentState, ExecutionResult
+from .agent import Agent, AgentState
 from .event import Event, EventBus, EventEmitter, EventType
 from .message import (
     Message,
@@ -27,7 +27,6 @@ from .tool import (
 __all__ = [
     "Agent",
     "AgentState",
-    "ExecutionResult",
     "Message",
     "MessageRole",
     "MessageType",

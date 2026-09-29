@@ -15,7 +15,7 @@ core 基本只包含**定义**（契约与数据类型），不实现任何功�
 
 | 文件 | 内容 |
 |---|---|
-| `agent.py` | Agent 的定义、状态枚举（`AgentState`）、执行结果（`ExecutionResult`） |
+| `agent.py` | Agent 的声明式定义（身份 + 循环配置）、运行状态枚举（`AgentState`） |
 | `message.py` | 应用层消息（`Message` 及其子类），含序列化能力 |
 | `event.py` | 事件（`Event`、`EventType`）、事件总线接口（`EventBus`）与发射助手（`EventEmitter`） |
 | `tool.py` | 工具接口（`Tool`）、工具定义与调用、执行结果的统一类型 |
