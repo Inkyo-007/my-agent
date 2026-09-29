@@ -289,6 +289,9 @@ class ClaudeProvider(BaseProvider):
                     and isinstance(prev["content"], list)
                 ):
                     # 与上一条工具结果合并进同一条 user 消息
+                    # 这里需要合并的理由是：Anthropic 没有独立的 tool 角色，所有工具调用结果都必须附加在用户消息中。
+                    # 当多个工具调用并行时，所有结果都会附加在同一条 user 消息中，保证 Anthropic 的消息结构正确。这是硬性协议要求。
+                    # 至于普通的连续同角色消息，Anthropic 会自动合并（早期版本确实会拒绝），在这里我们只处理工具调用结果的合并。
                     prev["content"].append(block)
                 else:
                     api_messages.append({"role": "user", "content": [block]})
