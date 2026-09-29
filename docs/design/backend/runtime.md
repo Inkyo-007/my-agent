@@ -54,7 +54,7 @@ runtime 只依赖 core 中定义的端口，不认识任何具体实现：
 - **循环永不抛异常**。这与执行器「失败也是结果」的设计一脉相承，但理由不同：执行器不抛异常是因为失败要喂回模型自我纠正；而 Provider 失败时模型已不可达，无从喂回，此时不抛异常是为了让调用方（application/UI）能以统一的方式渲染成功与失败，不必在每一层都套 try。
 - **工具调用串行执行**。同一轮的多个 tool_call 按顺序逐个执行。并行执行（`asyncio.gather`）留到真实需求出现——它带来错误聚合、事件交错、权限审批顺序等一系列复杂度，第一版不值得。
 
-`run()` 返回 `RunResult`（runtime 层自定义的 dataclass）：状态枚举（`completed` / `max_steps_reached` / `failed`）、步数、累计 token 用量、失败描述。不使用 core/agent.py 的 `ExecutionResult`——它是无使用方的早期占位（`status` 为裸字符串），其去留待 application 层落地时一并定夺，runtime 不依赖它。
+`run()` 返回 `RunResult`（runtime 层自定义的 dataclass）：状态枚举（`completed` / `max_steps_reached` / `failed`）、步数、累计 token 用量、失败描述。
 
 ### 协议字段随消息元数据走
 
@@ -118,12 +118,12 @@ registry.register(ReadFileTool())
 executor = ToolExecutor(registry, hooks=[...], event_bus=bus)
 
 provider = create_provider(config)    # models 层工厂
+agent = Agent(agent_id="assistant", name="助手", system_prompt="你是一个助手", max_steps=10)
 loop = AgentLoop(
+    agent=agent,
     provider=provider,
     executor=executor,
-    system_prompt="你是一个助手",
     tools=registry.list_tools(),
-    max_steps=10,
     event_bus=bus,                     # 可选，不传则静默
 )
 
@@ -136,7 +136,7 @@ result = await loop.run("帮我读一下 README.md 并总结")
 
 - **只做非流式**：第一版循环只调用 `complete()`。流式输出（`stream()` + 增量事件）是对外的产品能力，待 UI 接入前作为循环的增量能力补充；先用非流式把闭环的集成 bug（tool_call 配对、签名回传）暴露在最简单的形态下。
 - **无上下文压缩**：长会话会持续累积直到顶到模型上下文上限，由 memory 层解决。
-- **无中断/暂停**：`AgentState.PAUSED` 等状态尚无载体，取消机制待真实需求。
+- **无中断/暂停**：`AgentState` 只保留有真实迁移时机的状态（IDLE/EXECUTING/COMPLETED/FAILED），暂停、取消机制待真实需求出现时连同状态一起补回。
 - **max_steps 收尾无总结**：模型持续调用工具直到触顶时，最后一轮的工具结果已入历史但没有模型的收尾表述，`RunResult.status` 会标记 `max_steps_reached`，如何向用户呈现由调用方决定。
 - **无 checkpoint**：不实现 `save_checkpoint` / `restore_checkpoint`。对话回退的真实价值依赖持久化（memory 层）与 UI 入口，且真正的难点不在消息历史的快照（`to_dict`/`from_dict` 往返已天然支持），而在工具副作用的回滚——文件已被改写、命令已被执行，只回退对话会造成「对话回到过去、工作区留在未来」的不一致（Claude Code 为此配套了 shadow git，属需要单独立项的大设计）。触发引入的条件：memory 层落地 + UI 出现回退入口；届时 checkpoint 是「history 快照 + 存储」的增量加入，快照的存储管理归 memory 层，runtime 只保证可快照性，本层无需为此预留接口。
 

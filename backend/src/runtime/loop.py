@@ -2,16 +2,19 @@
 
 设计说明见 docs/design/backend/runtime.md。要点：
 - 一轮（step）= 一次模型调用 + 其引发的全部工具执行；
-- run() 永不抛异常：模型调用失败包装为 FAILED 的 RunResult；
+- run() 永不因模型/工具失败抛异常（包装为 FAILED 的 RunResult）；
+  唯一的例外是执行中重复调用 run()——那是调用方的编程错误；
 - 全部依赖都是 core 端口（BaseProvider / BaseToolExecutor / EventBus），
   具体实现的接线在 application 层。
 """
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, List
+from typing import Any, Callable, List
 
 from ..core import (
+    Agent,
+    AgentState,
     BaseProvider,
     BaseToolExecutor,
     EventBus,
@@ -56,48 +59,66 @@ ContextTransform = Callable[[List[Message]], List[Message]]
 
 
 class AgentLoop:
-    """Agent 主循环"""
+    """Agent 主循环
+
+    构造时接收 Agent 定义（system_prompt、max_steps 取自它）；
+    运行状态（state 属性）随 run() 迁移：IDLE → EXECUTING → COMPLETED/FAILED，
+    供 UI 渲染与调用方做并发防护。
+    """
 
     def __init__(
         self,
+        agent: Agent,
         provider: BaseProvider,
         executor: BaseToolExecutor,
-        system_prompt: str | None = None,
         tools: List[Tool] | None = None,
-        max_steps: int = 10,
         event_bus: EventBus | None = None,
         context_transform: ContextTransform | None = None,
         history: MessageHistory | None = None,
     ):
+        self.agent = agent
         self._provider = provider
         self._executor = executor
         self._tools = tools or []
-        self._max_steps = max_steps
         self._context_transform = context_transform
         self._events = EventEmitter(event_bus, source="agent_loop")
+        self._state = AgentState.IDLE
         self.history = history or MessageHistory()
-        if system_prompt and not self.history.messages:
+        if agent.system_prompt and not self.history.messages:
             # system prompt 作为首条消息存入历史（恢复会话时不重复添加）
             self.history.append(
                 Message(
                     role=MessageRole.SYSTEM,
                     type=MessageType.TEXT,
-                    content=system_prompt,
+                    content=agent.system_prompt,
                 )
             )
 
+    @property
+    def state(self) -> AgentState:
+        """当前运行状态（只读）"""
+        return self._state
+
     async def run(self, user_input: str) -> RunResult:
-        """执行一次任务，返回 RunResult；永不向调用方抛异常"""
+        """执行一次任务，返回 RunResult
+
+        模型/工具失败不抛异常（结果化为 RunResult）；
+        执行中重复调用属于调用方的编程错误，抛 RuntimeError。
+        """
+        if self._state == AgentState.EXECUTING:
+            raise RuntimeError(
+                f"Agent {self.agent.agent_id} 正在执行中，不允许重入 run()"
+            )
+        self._state = AgentState.EXECUTING
+
         self.history.append(
             Message(role=MessageRole.USER, type=MessageType.TEXT, content=user_input)
         )
-        self._events.emit(EventType.TASK_START, "任务开始")
+        self._emit(EventType.TASK_START, "任务开始")
 
         total_tokens = 0
-        for step in range(1, self._max_steps + 1):
-            self._events.emit(
-                EventType.STEP_START, f"第 {step} 轮开始", step_index=step
-            )
+        for step in range(1, self.agent.max_steps + 1):
+            self._emit(EventType.STEP_START, f"第 {step} 轮开始", step_index=step)
 
             try:
                 response = await self._provider.complete(
@@ -107,8 +128,9 @@ class AgentLoop:
             except Exception as e:
                 # 模型不可达时无从喂回，终止任务并以结果形式上报
                 error = f"模型调用失败：{type(e).__name__}: {e}"
-                self._events.emit(EventType.STEP_FAILED, error, step_index=step)
-                self._events.emit(EventType.TASK_FAILED, error, steps=step)
+                self._emit(EventType.STEP_FAILED, error, step_index=step)
+                self._emit(EventType.TASK_FAILED, error, steps=step)
+                self._state = AgentState.FAILED
                 return RunResult(
                     status=RunStatus.FAILED,
                     steps=step,
@@ -120,16 +142,15 @@ class AgentLoop:
             self.history.append(message_from_response(response))
 
             if not response.tool_calls:
-                self._events.emit(
-                    EventType.STEP_END, f"第 {step} 轮结束", step_index=step
-                )
-                self._events.emit(
+                self._emit(EventType.STEP_END, f"第 {step} 轮结束", step_index=step)
+                self._emit(
                     EventType.TASK_END,
                     "任务完成",
                     status=RunStatus.COMPLETED.value,
                     steps=step,
                     token_used=total_tokens,
                 )
+                self._state = AgentState.COMPLETED
                 return RunResult(
                     status=RunStatus.COMPLETED, steps=step, token_used=total_tokens
                 )
@@ -140,7 +161,7 @@ class AgentLoop:
                 result = await self._execute_tool(tool_call)
                 self.history.append(message_from_tool_result(tool_call, result))
 
-            self._events.emit(
+            self._emit(
                 EventType.STEP_END,
                 f"第 {step} 轮结束",
                 step_index=step,
@@ -148,18 +169,23 @@ class AgentLoop:
             )
 
         # max_steps 兜底：这不是错误，是防止无限循环的保险丝
-        self._events.emit(
+        self._emit(
             EventType.TASK_END,
             "达到最大步数，任务收尾",
             status=RunStatus.MAX_STEPS_REACHED.value,
-            steps=self._max_steps,
+            steps=self.agent.max_steps,
             token_used=total_tokens,
         )
+        self._state = AgentState.COMPLETED
         return RunResult(
             status=RunStatus.MAX_STEPS_REACHED,
-            steps=self._max_steps,
+            steps=self.agent.max_steps,
             token_used=total_tokens,
         )
+
+    def _emit(self, event_type: EventType, content: str, **metadata: Any) -> None:
+        """发射事件，统一携带 agent_id（多 Agent 场景的观测基础）"""
+        self._events.emit(event_type, content, agent_id=self.agent.agent_id, **metadata)
 
     def _context_view(self) -> List[Message]:
         """喂模型前的消息视图：注入了上下文变换则先加工"""

@@ -1,9 +1,12 @@
 """runtime/loop.py 的离线单元测试
 
 用 ScriptedProvider（脚本化响应）+ WeatherTool + CollectingBus 跑完整
-多轮循环，断言消息序列、喂回模型的上下文与事件序列。
+多轮循环，断言消息序列、喂回模型的上下文、事件序列与状态机迁移。
 """
 
+import asyncio
+
+import pytest
 from fakes import (
     CollectingBus,
     ScriptedProvider,
@@ -12,6 +15,8 @@ from fakes import (
 )
 
 from src.core import (
+    Agent,
+    AgentState,
     EventType,
     Message,
     MessageRole,
@@ -27,13 +32,25 @@ def weather_call(call_id: str = "call_1", city: str = "北京") -> ToolCall:
     return ToolCall(id=call_id, name="get_weather", input={"city": city})
 
 
-def make_loop(responses, bus=None, **kwargs):
+def make_agent(**kwargs) -> Agent:
+    kwargs.setdefault("agent_id", "test")
+    kwargs.setdefault("name", "测试")
+    return Agent(**kwargs)
+
+
+def make_loop(responses, bus=None, agent=None, **kwargs):
     """组装一个离线可跑的 AgentLoop：脚本化 Provider + 真实工具执行器"""
     registry = ToolRegistry()
     registry.register(WeatherTool())
     executor = ToolExecutor(registry, event_bus=bus)
     provider = ScriptedProvider(responses)
-    loop = AgentLoop(provider=provider, executor=executor, event_bus=bus, **kwargs)
+    loop = AgentLoop(
+        agent=agent or make_agent(),
+        provider=provider,
+        executor=executor,
+        event_bus=bus,
+        **kwargs,
+    )
     return loop, provider
 
 
@@ -69,6 +86,19 @@ class Test单轮问答:
             EventType.STEP_END,
             EventType.TASK_END,
         ]
+
+    async def test_事件携带agent_id(self):
+        """多 Agent 场景的观测基础：主循环事件统一携带 agent_id"""
+        bus = CollectingBus()
+        loop, _ = make_loop(
+            [make_provider_response(content="你好")],
+            bus=bus,
+            agent=make_agent(agent_id="agent-007"),
+        )
+
+        await loop.run("hi")
+
+        assert all(e.metadata["agent_id"] == "agent-007" for e in loop_events(bus))
 
     async def test_无事件总线时静默运行(self):
         loop, _ = make_loop([make_provider_response(content="你好")])
@@ -189,7 +219,7 @@ class Test异常与兜底:
             )
             for _ in range(3)
         ]
-        loop, provider = make_loop(responses, bus=bus, max_steps=3)
+        loop, provider = make_loop(responses, bus=bus, agent=make_agent(max_steps=3))
 
         result = await loop.run("hi")
 
@@ -200,10 +230,69 @@ class Test异常与兜底:
         assert end_events[0].metadata["status"] == "max_steps_reached"
 
 
+class Test状态机:
+    async def test_初始IDLE完成后COMPLETED(self):
+        loop, _ = make_loop([make_provider_response(content="你好")])
+        assert loop.state == AgentState.IDLE
+
+        await loop.run("hi")
+
+        assert loop.state == AgentState.COMPLETED
+
+    async def test_失败后为FAILED(self):
+        loop, _ = make_loop([ConnectionError("连接被拒")])
+        await loop.run("hi")
+        assert loop.state == AgentState.FAILED
+
+    async def test_执行中重入run抛RuntimeError(self):
+        """并发重入是调用方的编程错误：抛异常而非结果化"""
+        gate = asyncio.Event()
+
+        class BlockingProvider(ScriptedProvider):
+            async def complete(self, messages, tools=None):
+                await gate.wait()  # 阻塞以制造「执行中」窗口
+                return await super().complete(messages, tools)
+
+        registry = ToolRegistry()
+        registry.register(WeatherTool())
+        loop = AgentLoop(
+            agent=make_agent(),
+            provider=BlockingProvider([make_provider_response(content="ok")]),
+            executor=ToolExecutor(registry),
+        )
+
+        task = asyncio.create_task(loop.run("hi"))
+        await asyncio.sleep(0)  # 让任务推进到 EXECUTING
+        assert loop.state == AgentState.EXECUTING
+
+        with pytest.raises(RuntimeError, match="重入"):
+            await loop.run("again")
+
+        gate.set()
+        result = await task
+        assert result.status == RunStatus.COMPLETED
+
+    async def test_完成后可再次运行(self):
+        """COMPLETED/FAILED 是终态而非锁定态：同一 loop 可继续多轮对话"""
+        loop, provider = make_loop(
+            [
+                make_provider_response(content="第一答"),
+                make_provider_response(content="第二答"),
+            ]
+        )
+
+        await loop.run("第一问")
+        result = await loop.run("第二问")
+
+        assert result.status == RunStatus.COMPLETED
+        assert provider.calls[1][-1].content == "第二问"
+
+
 class Test上下文组装:
     async def test_system_prompt作为首条消息(self):
         loop, provider = make_loop(
-            [make_provider_response(content="答")], system_prompt="你是助手"
+            [make_provider_response(content="答")],
+            agent=make_agent(system_prompt="你是助手"),
         )
 
         await loop.run("hi")
@@ -218,7 +307,7 @@ class Test上下文组装:
         )
         loop, provider = make_loop(
             [make_provider_response(content="答")],
-            system_prompt="你是助手",
+            agent=make_agent(system_prompt="你是助手"),
             history=history,
         )
 
