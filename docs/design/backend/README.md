@@ -18,6 +18,9 @@
 | [models.md](./models.md) | 模型调用层：与各家大模型 API 通信 | 已完成 |
 | [tools.md](./tools.md) | 工具执行层：工具的注册、校验与执行 | 已完成 |
 | [runtime.md](./runtime.md) | 运行时引擎层：Agent 主循环、会话历史、事件总线实现 | 已完成 |
+| [application.md](./application.md) | 组合根：配置加载、各层实例的创建与接线、CLI 冒烟入口 | 已完成 |
+
+注意：application 层是对当前已实现的其它层进行组合，日后进行增量开发时，需要再对 application 进行补充。
 
 其余功能层（security、memory、mcp、reliability、orchestration）仍在规划中，实现后按同样方式各补一份，并在此处更新文档清单。
 
