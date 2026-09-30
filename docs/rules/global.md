@@ -27,5 +27,4 @@ alwaysApply: true
 
 - 后端开发规范：[backend.md](./backend.md)
 - 前端开发规范：[frontend.md](./frontend.md)
-- 文档修改规范：[docs.md](./docs.md)
 - 后端设计说明：[../design/backend/README.md](../design/backend/README.md)
