@@ -108,7 +108,7 @@ class ToolExecutor(BaseToolExecutor):
 
         self._events.emit(
             EventType.TOOL_EXECUTION_END,
-            f"工具 {tool_call.name} 执行成功",
+            f"工具 {tool_call.name} 执行成功，结果：\n{result.content}\n",
             tool_name=tool_call.name,
             tool_call_id=tool_call.id,
         )
