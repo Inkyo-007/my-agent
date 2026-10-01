@@ -32,6 +32,7 @@ runtime 只依赖 core 中定义的端口，不认识任何具体实现：
 | `history.py` | `MessageHistory`：会话历史（`Message` 列表）的追加与读取 |
 | `convert.py` | `Message` ↔ `ProviderMessage` 双向转换（纯函数） |
 | `bus.py` | `InMemoryEventBus`：事件总线的内存实现 |
+| `stream.py` | `StreamAccumulator`：流式增量（`StreamProviderResponse`）→ `ProviderResponse` 的组装 |
 | `__init__.py` | 包导出 |
 
 ## 关键设计
@@ -105,6 +106,14 @@ runtime 只依赖 core 中定义的端口，不认识任何具体实现：
 
 第一版不做异步投递、过滤、批处理：订阅者是普通函数，过滤由订阅者自行处理（契约已约定）。这些能力等 observability 等真实订阅者出现后再长。
 
+### 流式输出
+
+`run(user_input, stream=True)` 时模型调用改走 `provider.stream()`。流式只是「模型调用」这一步的实现替换：增量碎片由 `StreamAccumulator` 组装回 `ProviderResponse` 后，入历史、执行工具、收尾事件走的是与非流式**完全相同的代码路径**——两条路径共享后续逻辑，保证两种模式下循环语义（tool_call 配对、签名回传、max_steps 兜底）的一致。
+
+组装能做成协议无关，是因为 models 层已把厂商差异归一化为五种 `StreamType`：正文/思考/签名/加密思考按 delta 键分别拼接（签名与加密思考是 Anthropic 多轮思考的回传命脉），工具调用按 index 分桶（id/name 取首帧、input JSON 碎片拼接后解析，非法 JSON 降级为 `{}`，与 `complete()` 对齐），STOP 帧携带 finish_reason 与完整 token 统计。
+
+边收边转发的只有正文与思考增量（`MODEL_TEXT_DELTA` / `MODEL_THINKING_DELTA`，见 core.md 事件一节）：UI 关心的是文字流；签名、加密思考、工具调用碎片只进累加器——工具调用的可见性由 `TOOL_EXECUTION_*` 事件承担，无需重复。
+
 ## 使用方式
 
 runtime 不在内部创建任何依赖，全部实例由 application 组合根接线：
@@ -128,13 +137,14 @@ loop = AgentLoop(
 )
 
 result = await loop.run("帮我读一下 README.md 并总结")
+# 流式：result = await loop.run("...", stream=True)——正文/思考增量实时广播到总线
 # result.status: RunStatus.COMPLETED / MAX_STEPS_REACHED / FAILED
 # loop.history.messages: 完整会话历史
 ```
 
 ## 已知边界
 
-- **只做非流式**：第一版循环只调用 `complete()`。流式输出（`stream()` + 增量事件）是对外的产品能力，待 UI 接入前作为循环的增量能力补充；先用非流式把闭环的集成 bug（tool_call 配对、签名回传）暴露在最简单的形态下。
+
 - **无上下文压缩**：长会话会持续累积直到顶到模型上下文上限，由 memory 层解决。
 - **无中断/暂停**：`AgentState` 只保留有真实迁移时机的状态（IDLE/EXECUTING/COMPLETED/FAILED），暂停、取消机制待真实需求出现时连同状态一起补回。
 - **max_steps 收尾无总结**：模型持续调用工具直到触顶时，最后一轮的工具结果已入历史但没有模型的收尾表述，`RunResult.status` 会标记 `max_steps_reached`，如何向用户呈现由调用方决定。
@@ -156,4 +166,7 @@ result = await loop.run("帮我读一下 README.md 并总结")
 4. `max_steps` 兜底：脚本 Provider 永远返回 tool_call，断言以 `max_steps_reached` 收尾；
 5. Provider 抛异常：断言返回 failed `RunResult`、发射 `TASK_FAILED`、异常不向外抛；
 6. 不传总线时完全静默；
-7. 转换层的参数化单测：思考签名缺失的降级、metadata 序列化往返后再转换的一致性。
+7. 转换层的参数化单测：思考签名缺失的降级、metadata 序列化往返后再转换的一致性；
+8. 流式路径（`stream=True`）：增量事件转发次序、组装结果与非流式同路径（历史、tool_call 配对）、流中途异常的 FAILED 收尾、非流式默认不发射增量事件。
+
+流式由 `ScriptedProvider` 的增量序列脚本驱动（`test/fakes.py` 的 `make_stream_events` 工厂）；组装器 `StreamAccumulator` 另有独立单测（`test/runtime/test_stream.py`），覆盖工具调用分桶与乱序到达、input 碎片拼接与非法 JSON 降级、签名/加密思考留存等聚合细节。

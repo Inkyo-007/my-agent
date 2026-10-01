@@ -15,7 +15,7 @@ application 是应用的组装入口：读取配置、创建各层实例并互�
 |---|---|
 | `config.py` | 环境变量（.env）→ `ModelConfig`，附缺失/非法变量的明确报错 |
 | `app.py` | `create_app()` 组合根 + `Application` 门面（只暴露 `loop` 与 `bus`） |
-| `__main__.py` | 最小 CLI 冒烟入口（`poe chat`），开发期手动验证用 |
+| `__main__.py` | 最小 CLI 冒烟入口（`poe chat`，流式输出），开发期手动验证用 |
 
 ## 关键设计
 
@@ -52,7 +52,7 @@ result = await app.loop.run("你好")
 
 - **预装工具仅文件读写**：CLI 接入了 builtin 的 `read_file` / `write_file`（工作区根目录在 `__main__.py` 中配置）；`shell_command` 待审批钩子就位后引入（约定见 tools.md「内置工具」）。
 - **无会话持久化**：进程退出即丢失历史，由 memory 层解决；落地后 application 负责把恢复的 `MessageHistory` 接进 `AgentLoop`。
-- **无流式输出**：与 runtime 层一致，待 UI 接入前补充。
+
 - **配置项刻意最少**：只覆盖协议类型、密钥、模型、base_url。思考档位、max_tokens 等调参项等真实需求出现时再加（届时只动 config.py）。
 
 ## 测试方式
