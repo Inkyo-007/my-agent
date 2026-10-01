@@ -114,7 +114,7 @@ class AgentLoop:
         self.history.append(
             Message(role=MessageRole.USER, type=MessageType.TEXT, content=user_input)
         )
-        self._emit(EventType.TASK_START, "任务开始")
+        self._emit(EventType.TASK_START, "任务开始\n" + "=" * 60)
 
         total_tokens = 0
         for step in range(1, self.agent.max_steps + 1):
@@ -142,10 +142,10 @@ class AgentLoop:
             self.history.append(message_from_response(response))
 
             if not response.tool_calls:
-                self._emit(EventType.STEP_END, f"第 {step} 轮结束", step_index=step)
+                self._emit(EventType.STEP_END, f"第 {step} 轮结束\n" + "=" * 60, step_index=step)
                 self._emit(
                     EventType.TASK_END,
-                    "任务完成",
+                    "任务完成\n" + "=" * 60,
                     status=RunStatus.COMPLETED.value,
                     steps=step,
                     token_used=total_tokens,
@@ -163,7 +163,7 @@ class AgentLoop:
 
             self._emit(
                 EventType.STEP_END,
-                f"第 {step} 轮结束",
+                f"第 {step} 轮结束\n" + "=" * 60,
                 step_index=step,
                 tool_calls=len(response.tool_calls),
             )
@@ -171,7 +171,7 @@ class AgentLoop:
         # max_steps 兜底：这不是错误，是防止无限循环的保险丝
         self._emit(
             EventType.TASK_END,
-            "达到最大步数，任务收尾",
+            "达到最大步数，任务收尾\n" + "=" * 60,
             status=RunStatus.MAX_STEPS_REACHED.value,
             steps=self.agent.max_steps,
             token_used=total_tokens,
