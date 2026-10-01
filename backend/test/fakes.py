@@ -8,6 +8,7 @@ conftest.py 只保留 fixture（自动可见、无需 import），
 目录专属的 fixture 放对应子目录的 conftest.py（如 models/conftest.py）。
 """
 
+import asyncio
 import json
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Dict, List
@@ -43,6 +44,55 @@ class WeatherTool(Tool):
 
     async def call(self, params: Dict[str, Any]) -> ToolResult:
         return ToolResult(success=True, content="晴", execution_time=0.0)
+
+
+class ConcurrencyProbe:
+    """跨工具实例共享的并发探针：观测同时在执的工具数量（验证并行度与限流）"""
+
+    def __init__(self):
+        self.running = 0
+        self.max_running = 0
+
+
+class RecordingTool(Tool):
+    """记录并发执行情况的测试工具
+
+    - delay：模拟耗时（asyncio.sleep，非阻塞），用于制造完成顺序差异
+    - error：模拟工具内部异常（验证并行下失败隔离）
+    - 并发计数挂在共享的 ConcurrencyProbe 上（多个工具实例共用才有意义）
+    """
+
+    def __init__(
+        self,
+        name: str,
+        probe: ConcurrencyProbe,
+        delay: float = 0.0,
+        error: Exception | None = None,
+    ):
+        self.definition = ToolDefinition(
+            name=name,
+            description=f"测试工具 {name}",
+            input_schema=ToolInputSchema(),
+        )
+        self._probe = probe
+        self._delay = delay
+        self._error = error
+
+    async def call(self, params: Dict[str, Any]) -> ToolResult:
+        self._probe.running += 1
+        self._probe.max_running = max(self._probe.max_running, self._probe.running)
+        try:
+            if self._delay:
+                await asyncio.sleep(self._delay)
+            if self._error is not None:
+                raise self._error
+            return ToolResult(
+                success=True,
+                content=f"{self.definition.name} 完成",
+                execution_time=0.0,
+            )
+        finally:
+            self._probe.running -= 1
 
 
 def make_response(

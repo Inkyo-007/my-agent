@@ -3,12 +3,15 @@
 设计说明见 docs/design/backend/runtime.md。要点：
 - 一轮（step）= 一次模型调用 + 其引发的全部工具执行；
 - run() 支持流式（stream=True）：增量实时转发到总线，组装后与非流式同路径；
+- 同轮多个工具调用并行执行（asyncio.gather + Semaphore 限流），
+  结果按提交顺序写回历史，tool_result 配对顺序不受影响；
 - run() 永不因模型/工具失败抛异常（包装为 FAILED 的 RunResult）；
   唯一的例外是执行中重复调用 run()——那是调用方的编程错误；
 - 全部依赖都是 core 端口（BaseProvider / BaseToolExecutor / EventBus），
   具体实现的接线在 application 层。
 """
 
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, List
@@ -79,6 +82,7 @@ class AgentLoop:
         event_bus: EventBus | None = None,
         context_transform: ContextTransform | None = None,
         history: MessageHistory | None = None,
+        max_concurrent_tools: int = 5,
     ):
         self.agent = agent
         self._provider = provider
@@ -88,6 +92,10 @@ class AgentLoop:
         self._events = EventEmitter(event_bus, source="agent_loop")
         self._state = AgentState.IDLE
         self.history = history or MessageHistory()
+        if max_concurrent_tools < 1:
+            raise ValueError("max_concurrent_tools 必须 ≥ 1")
+        # 同轮工具调用的并发闸口：gather 同时调度，Semaphore 限制同时执行数
+        self._tool_semaphore = asyncio.Semaphore(max_concurrent_tools)
         if agent.system_prompt and not self.history.messages:
             # system prompt 作为首条消息存入历史（恢复会话时不重复添加）
             self.history.append(
@@ -159,10 +167,14 @@ class AgentLoop:
                     status=RunStatus.COMPLETED, steps=step, token_used=total_tokens
                 )
 
-            # 同一轮的多个工具调用串行执行（并行带来的错误聚合与事件交错
-            # 复杂度，留待真实需求出现再引入）
-            for tool_call in response.tool_calls:
-                result = await self._execute_tool(tool_call)
+            # 同一轮的多个工具调用并行执行（Semaphore 限流）。
+            # gather 保序：结果按提交顺序返回，与完成顺序无关——
+            # tool_result 与 tool_calls 的配对顺序（Claude 协议要求）不受影响；
+            # 事件按真实完成时间交错到达，归属由 metadata 的 tool_call_id 区分。
+            results = await asyncio.gather(
+                *(self._execute_tool_limited(tc) for tc in response.tool_calls)
+            )
+            for tool_call, result in zip(response.tool_calls, results):
                 self.history.append(message_from_tool_result(tool_call, result))
 
             self._emit(
@@ -227,6 +239,11 @@ class AgentLoop:
         if self._context_transform is not None:
             return self._context_transform(messages)
         return messages
+
+    async def _execute_tool_limited(self, tool_call: ToolCall) -> ToolResult:
+        """限流后的工具执行入口：超过并发上限的调用在此排队"""
+        async with self._tool_semaphore:
+            return await self._execute_tool(tool_call)
 
     async def _execute_tool(self, tool_call: ToolCall) -> ToolResult:
         """执行一次工具调用；防御性兜底保证 run() 不抛出

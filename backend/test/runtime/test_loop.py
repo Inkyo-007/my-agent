@@ -9,6 +9,8 @@ import asyncio
 import pytest
 from fakes import (
     CollectingBus,
+    ConcurrencyProbe,
+    RecordingTool,
     ScriptedProvider,
     WeatherTool,
     make_provider_response,
@@ -39,10 +41,14 @@ def make_agent(**kwargs) -> Agent:
     return Agent(**kwargs)
 
 
-def make_loop(responses, bus=None, agent=None, **kwargs):
-    """组装一个离线可跑的 AgentLoop：脚本化 Provider + 真实工具执行器"""
+def make_loop(responses, bus=None, agent=None, registry_tools=None, **kwargs):
+    """组装一个离线可跑的 AgentLoop：脚本化 Provider + 真实工具执行器
+
+    registry_tools 指定注册进注册表的工具（默认 [WeatherTool()]）。
+    """
     registry = ToolRegistry()
-    registry.register(WeatherTool())
+    for tool in registry_tools or [WeatherTool()]:
+        registry.register(tool)
     executor = ToolExecutor(registry, event_bus=bus)
     provider = ScriptedProvider(responses)
     loop = AgentLoop(
@@ -418,3 +424,107 @@ class Test流式:
             for e in bus.events
             if e.type in (EventType.MODEL_TEXT_DELTA, EventType.MODEL_THINKING_DELTA)
         ]
+
+
+class Test并行工具执行:
+    """同轮多个 tool_call 的并行执行：并行度、限流、保序、失败隔离"""
+
+    @staticmethod
+    def make_calls(n: int) -> list:
+        return [ToolCall(id=f"c{i}", name=f"tool_{i}", input={}) for i in range(n)]
+
+    async def test_同轮多个工具调用并行执行(self):
+        probe = ConcurrencyProbe()
+        tools = [
+            RecordingTool("tool_0", probe, delay=0.05),
+            RecordingTool("tool_1", probe, delay=0.05),
+        ]
+        loop, _ = make_loop(
+            [
+                make_provider_response(content="", tool_calls=self.make_calls(2)),
+                make_provider_response(content="完成"),
+            ],
+            registry_tools=tools,
+            tools=tools,
+        )
+        result = await loop.run("并行测试")
+
+        assert result.status == RunStatus.COMPLETED
+        # 串行执行时 max_running 只能为 1
+        assert probe.max_running == 2
+
+    async def test_限流生效(self):
+        probe = ConcurrencyProbe()
+        tools = [RecordingTool(f"tool_{i}", probe, delay=0.05) for i in range(3)]
+        loop, _ = make_loop(
+            [
+                make_provider_response(content="", tool_calls=self.make_calls(3)),
+                make_provider_response(content="完成"),
+            ],
+            registry_tools=tools,
+            tools=tools,
+            max_concurrent_tools=2,
+        )
+        result = await loop.run("限流测试")
+
+        assert result.status == RunStatus.COMPLETED
+        assert probe.max_running == 2
+
+    async def test_历史按提交顺序保序且事件交错可归因(self):
+        probe = ConcurrencyProbe()
+        slow = RecordingTool("tool_0", probe, delay=0.05)
+        fast = RecordingTool("tool_1", probe)
+        bus = CollectingBus()
+        loop, _ = make_loop(
+            [
+                make_provider_response(content="", tool_calls=self.make_calls(2)),
+                make_provider_response(content="完成"),
+            ],
+            bus=bus,
+            registry_tools=[slow, fast],
+            tools=[slow, fast],
+        )
+        result = await loop.run("保序测试")
+
+        assert result.status == RunStatus.COMPLETED
+        # tool_1 先完成，但历史中的 tool_result 顺序与 tool_calls 提交顺序一致
+        results = [
+            m for m in loop.history.messages if m.type == MessageType.TOOL_RESULT
+        ]
+        assert [m.metadata["tool_call_id"] for m in results] == ["c0", "c1"]
+
+        # 事件按真实完成时间交错：tool_1 的 END 先于 tool_0 的 END
+        ends = [e for e in bus.events if e.type == EventType.TOOL_EXECUTION_END]
+        assert [e.metadata["tool_name"] for e in ends] == ["tool_1", "tool_0"]
+        # 归属完整：每个 END 都有同 tool_call_id 的 START 先行
+        started = set()
+        for e in bus.events:
+            if e.type == EventType.TOOL_EXECUTION_START:
+                started.add(e.metadata["tool_call_id"])
+            elif e.type == EventType.TOOL_EXECUTION_END:
+                assert e.metadata["tool_call_id"] in started
+
+    async def test_单个工具失败不影响其他并行调用(self):
+        probe = ConcurrencyProbe()
+        tools = [
+            RecordingTool("tool_0", probe, error=RuntimeError("炸了")),
+            RecordingTool("tool_1", probe),
+        ]
+        loop, _ = make_loop(
+            [
+                make_provider_response(content="", tool_calls=self.make_calls(2)),
+                make_provider_response(content="完成"),
+            ],
+            registry_tools=tools,
+            tools=tools,
+        )
+        result = await loop.run("失败隔离测试")
+
+        assert result.status == RunStatus.COMPLETED
+        results = [
+            m for m in loop.history.messages if isinstance(m, ToolResultMessage)
+        ]
+        assert len(results) == 2
+        assert results[0].status == "execution_error"
+        assert "炸了" in results[0].content
+        assert results[1].is_success
