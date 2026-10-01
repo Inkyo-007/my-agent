@@ -31,6 +31,7 @@ class StubTool(Tool):
         delay: float = 0.0,
         error: Exception | None = None,
         timeout_seconds: float = 30,
+        content: str = "晴",
     ):
         self.definition = ToolDefinition(
             name=name,
@@ -44,6 +45,7 @@ class StubTool(Tool):
         self.called = False
         self._delay = delay
         self._error = error
+        self._content = content
 
     async def call(self, params: Dict[str, Any]) -> ToolResult:
         self.called = True
@@ -51,7 +53,7 @@ class StubTool(Tool):
             await asyncio.sleep(self._delay)
         if self._error is not None:
             raise self._error
-        return ToolResult(success=True, content="晴", execution_time=0.0)
+        return ToolResult(success=True, content=self._content, execution_time=0.0)
 
 
 def make_tool(
@@ -59,8 +61,9 @@ def make_tool(
     delay: float = 0.0,
     error: Exception | None = None,
     timeout_seconds: float = 30,
+    content: str = "晴",
 ) -> StubTool:
-    return StubTool(name, delay, error, timeout_seconds)
+    return StubTool(name, delay, error, timeout_seconds, content)
 
 
 def make_executor(
@@ -92,6 +95,25 @@ class Test正常执行:
         ]
         assert all(e.source == "tool_executor" for e in bus.events)
         assert bus.events[0].metadata["tool_name"] == "get_weather"
+
+    async def test_成功事件携带结果摘要(self):
+        bus = CollectingBus()
+        await make_executor(make_tool(), bus=bus).execute(weather_call())
+        end = bus.events[-1]
+        assert end.metadata["result_excerpt"] == "晴"
+        # 事件 content 是摘要文案，不内联完整结果（完整结果在 ToolResult 中）
+        assert "晴" not in end.content
+
+    async def test_超长结果的摘要截断并标注(self):
+        bus = CollectingBus()
+        long_content = "x" * 600
+        await make_executor(make_tool(content=long_content), bus=bus).execute(
+            weather_call()
+        )
+        excerpt = bus.events[-1].metadata["result_excerpt"]
+        assert excerpt.startswith("x" * 500)
+        assert "600" in excerpt
+        assert "已截断" in excerpt
 
 
 class Test前置拦截:

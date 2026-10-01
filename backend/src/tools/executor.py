@@ -32,6 +32,17 @@ from .validator import check_tool_exists, validate_tool_input
 # 或将来 security 模块里某个管理器的绑定方法（如 manager.before_execute）。
 ExecutionHook = Callable[[ToolCall, ToolDefinition], HookVerdict]
 
+# 成功事件携带的结果摘要长度上限：事件是通知（供 UI 预览、日志检索），
+# 完整结果在 ToolResult 与 history 中，不应随事件广播给全部订阅者
+_RESULT_EXCERPT_MAX = 500
+
+
+def _excerpt(content: str) -> str:
+    """结果摘要：超限截断并标注总长度"""
+    if len(content) <= _RESULT_EXCERPT_MAX:
+        return content
+    return content[:_RESULT_EXCERPT_MAX] + f"…（共 {len(content)} 字符，已截断）"
+
 
 class ToolExecutor(BaseToolExecutor):
     """工具执行器（core.BaseToolExecutor 端口的具体实现）
@@ -108,9 +119,10 @@ class ToolExecutor(BaseToolExecutor):
 
         self._events.emit(
             EventType.TOOL_EXECUTION_END,
-            f"工具 {tool_call.name} 执行成功，结果：\n{result.content}\n",
+            f"工具 {tool_call.name} 执行成功",
             tool_name=tool_call.name,
             tool_call_id=tool_call.id,
+            result_excerpt=_excerpt(result.content),
         )
         return result
 
