@@ -108,7 +108,7 @@ class ClaudeProvider(BaseProvider):
                         started = True
                         yield StreamProviderResponse(
                             type=StreamType.START,
-                            delta={"role": "assistant"},
+                            delta={"role": "assistant", "model": event.message.model},
                         )
 
                 elif event.type == "content_block_start":

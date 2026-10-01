@@ -236,6 +236,7 @@ def make_chunk(
     finish_reason=None,
     total_tokens=None,
     empty_choices=False,
+    model="test-model",
 ):
     """伪造一个流式 chunk
 
@@ -243,7 +244,7 @@ def make_chunk(
     """
     usage = SimpleNamespace(total_tokens=total_tokens) if total_tokens else None
     if empty_choices:
-        return SimpleNamespace(choices=[], usage=usage)
+        return SimpleNamespace(choices=[], usage=usage, model=model)
     delta = SimpleNamespace(
         role=role,
         content=content,
@@ -251,7 +252,7 @@ def make_chunk(
         tool_calls=tool_calls,
     )
     choice = SimpleNamespace(delta=delta, finish_reason=finish_reason)
-    return SimpleNamespace(choices=[choice], usage=usage)
+    return SimpleNamespace(choices=[choice], usage=usage, model=model)
 
 
 def make_tool_delta(index=0, call_id=None, name=None, arguments=None):
@@ -292,6 +293,7 @@ class Test流式输出:
             StreamType.TEXT_DELTA,
             StreamType.STOP,
         ]
+        assert events[0].delta == {"role": "assistant", "model": "test-model"}
         assert events[-1].delta == {"finish_reason": "stop"}
         assert events[-1].token_used == 42
 
@@ -306,6 +308,7 @@ class Test流式输出:
         ]
         events = await stream_events(provider, chunks)
         assert events[-1].type == StreamType.STOP
+        assert events[0].delta == {"role": "assistant", "model": "test-model"}
         assert events[-1].delta == {"finish_reason": "stop"}
         assert events[-1].token_used == 42  # 不是 0！
 

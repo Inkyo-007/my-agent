@@ -81,11 +81,12 @@ class FakeStream:
             yield event
 
 
-def ev_message_start(input_tokens=10):
+def ev_message_start(input_tokens=10, model="claude-test"):
     return SimpleNamespace(
         type="message_start",
         message=SimpleNamespace(
-            usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=1)
+            model=model,
+            usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=1),
         ),
     )
 
@@ -452,6 +453,7 @@ class Test流式输出:
             StreamType.TEXT_DELTA,
             StreamType.STOP,
         ]
+        assert stream_events[0].delta == {"role": "assistant", "model": "claude-test"}
         assert stream_events[1].delta == {"thinking": "想想"}
         assert stream_events[2].delta == {"signature": "sig_1"}
         assert stream_events[3].delta == {"content": "你好"}

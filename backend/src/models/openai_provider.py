@@ -102,7 +102,8 @@ class OpenAIProvider(BaseProvider):
                 if not started:
                     started = True
                     yield StreamProviderResponse(
-                        type=StreamType.START, delta={"role": delta.role or "assistant"}
+                        type=StreamType.START,
+                        delta={"role": delta.role or "assistant", "model": chunk.model},
                     )
 
                 # OpenAI 官方 schema 里不包含 reasoning_content，而部分 OpenAI 兼容服务包含该字段
