@@ -12,6 +12,7 @@ from fakes import (
     ScriptedProvider,
     WeatherTool,
     make_provider_response,
+    make_stream_events,
 )
 
 from src.core import (
@@ -332,3 +333,88 @@ class Test上下文组装:
         # 第二次调用时历史已有 4 条，但喂给模型的只有最后 2 条
         assert len(provider.calls[0]) == 1
         assert len(provider.calls[1]) == 2
+
+
+class Test流式:
+    async def test_流式闭环转发增量事件(self):
+        bus = CollectingBus()
+        loop, provider = make_loop(
+            [make_stream_events(content="你好", thinking="想一想", token_used=42)],
+            bus=bus,
+        )
+        result = await loop.run("你好", stream=True)
+
+        assert result.status == RunStatus.COMPLETED
+        assert result.token_used == 42
+
+        events = loop_events(bus)
+        assert [e.type for e in events] == [
+            EventType.TASK_START,
+            EventType.STEP_START,
+            EventType.MODEL_THINKING_DELTA,
+            EventType.MODEL_TEXT_DELTA,
+            EventType.STEP_END,
+            EventType.TASK_END,
+        ]
+        assert events[2].content == "想一想"
+        assert events[3].content == "你好"
+        assert events[2].metadata["step_index"] == 1
+
+        # 组装结果与非流式同路径：最终回答（含思考）入历史
+        final = loop.history.messages[-1]
+        assert final.content == "你好"
+        assert final.thinking == "想一想"
+
+    async def test_流式工具调用闭环(self):
+        bus = CollectingBus()
+        loop, provider = make_loop(
+            [
+                make_stream_events(
+                    tool_calls=[weather_call()], finish_reason="tool_calls"
+                ),
+                make_stream_events(content="北京今天晴"),
+            ],
+            bus=bus,
+            tools=[WeatherTool()],
+        )
+        result = await loop.run("北京天气如何？", stream=True)
+
+        assert result.status == RunStatus.COMPLETED
+        assert result.steps == 2
+        # make_loop 的默认 agent 无 system prompt：user → tool_use → tool_result → 最终回答
+        assert [m.type for m in loop.history.messages] == [
+            MessageType.TEXT,
+            MessageType.TOOL_USE,
+            MessageType.TOOL_RESULT,
+            MessageType.TEXT,
+        ]
+        # 流式路径同样维护 tool_call 配对（跨层拼缝契约）
+        second_call = provider.calls[1]
+        assert second_call[1].tool_calls[0].id == "call_1"
+        assert second_call[2].role == "tool"
+        assert second_call[2].tool_call_id == "call_1"
+        # executor 的工具事件照常发射，与增量事件共存于同一总线
+        types = [e.type for e in bus.events]
+        assert EventType.TOOL_EXECUTION_START in types
+        assert EventType.MODEL_TEXT_DELTA in types
+
+    async def test_流式中途异常以FAILED收尾(self):
+        bus = CollectingBus()
+        loop, _ = make_loop([RuntimeError("连接中断")], bus=bus)
+        result = await loop.run("任意输入", stream=True)
+
+        assert result.status == RunStatus.FAILED
+        assert result.error is not None and "连接中断" in result.error
+        assert EventType.TASK_FAILED in [e.type for e in bus.events]
+
+    async def test_非流式默认不发射增量事件(self):
+        bus = CollectingBus()
+        loop, _ = make_loop([make_provider_response(content="你好")], bus=bus)
+        result = await loop.run("你好")
+
+        assert result.status == RunStatus.COMPLETED
+        assert not [
+            e
+            for e in bus.events
+            if e.type in (EventType.MODEL_TEXT_DELTA, EventType.MODEL_THINKING_DELTA)
+        ]

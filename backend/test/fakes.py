@@ -8,6 +8,7 @@ conftest.py 只保留 fixture（自动可见、无需 import），
 目录专属的 fixture 放对应子目录的 conftest.py（如 models/conftest.py）。
 """
 
+import json
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Dict, List
 
@@ -18,6 +19,7 @@ from src.core import (
     ProviderMessage,
     ProviderResponse,
     StreamProviderResponse,
+    StreamType,
     Tool,
     ToolCall,
     ToolDefinition,
@@ -119,11 +121,71 @@ def make_provider_response(
     )
 
 
+def make_stream_events(
+    content: str = "",
+    thinking: str | None = None,
+    tool_calls: List[ToolCall] | None = None,
+    finish_reason: str = "stop",
+    token_used: int = 10,
+    model: str = "test-model",
+) -> List[StreamProviderResponse]:
+    """构造一段合法的流式增量序列（START → 增量 → STOP）
+
+    工具调用按真实 API 形态拆成两帧：首帧携带 id/name，次帧携带 input
+    的 JSON 文本（与 OpenAI / Claude 的流式碎片一致）。
+    """
+    events: List[StreamProviderResponse] = [
+        StreamProviderResponse(
+            type=StreamType.START, delta={"role": "assistant", "model": model}
+        )
+    ]
+    if thinking:
+        events.append(
+            StreamProviderResponse(
+                type=StreamType.THINKING_DELTA, delta={"thinking": thinking}
+            )
+        )
+    if content:
+        events.append(
+            StreamProviderResponse(
+                type=StreamType.TEXT_DELTA, delta={"content": content}
+            )
+        )
+    for index, tc in enumerate(tool_calls or []):
+        events.append(
+            StreamProviderResponse(
+                type=StreamType.TOOL_CALL_DELTA,
+                delta={"index": index, "id": tc.id, "name": tc.name, "input": None},
+            )
+        )
+        events.append(
+            StreamProviderResponse(
+                type=StreamType.TOOL_CALL_DELTA,
+                delta={
+                    "index": index,
+                    "id": None,
+                    "name": None,
+                    "input": json.dumps(tc.input, ensure_ascii=False),
+                },
+            )
+        )
+    events.append(
+        StreamProviderResponse(
+            type=StreamType.STOP,
+            delta={"finish_reason": finish_reason},
+            token_used=token_used,
+        )
+    )
+    return events
+
+
 class ScriptedProvider(BaseProvider):
     """脚本化 Provider：按预设队列依次返回响应，并记录每次收到的消息
 
-    - 队列元素为 ProviderResponse 时原样返回；为 Exception 时抛出（模拟调用失败）
-    - calls：每次 complete() 收到的 ProviderMessage 列表，用于断言
+    - 队列元素为 ProviderResponse 时 complete() 原样返回；
+      为 List[StreamProviderResponse] 时是 stream() 的增量序列（见
+      make_stream_events）；为 Exception 时抛出（模拟调用失败）
+    - calls：每次 complete()/stream() 收到的 ProviderMessage 列表，用于断言
       「第 N 次调用模型时喂进去的上下文长什么样」
     """
 
@@ -131,10 +193,7 @@ class ScriptedProvider(BaseProvider):
         self._responses = list(responses)
         self.calls: List[List[ProviderMessage]] = []
 
-    async def complete(
-        self, messages: List[ProviderMessage], tools: List[Tool] | None = None
-    ) -> ProviderResponse:
-        self.calls.append(list(messages))
+    def _next(self) -> Any:
         if not self._responses:
             raise AssertionError("ScriptedProvider 的响应队列已耗尽")
         item = self._responses.pop(0)
@@ -142,7 +201,27 @@ class ScriptedProvider(BaseProvider):
             raise item
         return item
 
+    async def complete(
+        self, messages: List[ProviderMessage], tools: List[Tool] | None = None
+    ) -> ProviderResponse:
+        self.calls.append(list(messages))
+        item = self._next()
+        if isinstance(item, list):
+            raise AssertionError("脚本元素是流式增量序列，应以 stream=True 消费")
+        return item
+
     def stream(
         self, messages: List[ProviderMessage], tools: List[Tool] | None = None
     ) -> AsyncGenerator[StreamProviderResponse, None]:
-        raise NotImplementedError("ScriptedProvider 不支持流式")
+        self.calls.append(list(messages))
+        item = self._next()
+        if not isinstance(item, list):
+            raise AssertionError(
+                "脚本元素不是流式增量序列（List[StreamProviderResponse]）"
+            )
+
+        async def _gen() -> AsyncGenerator[StreamProviderResponse, None]:
+            for event in item:
+                yield event
+
+        return _gen()

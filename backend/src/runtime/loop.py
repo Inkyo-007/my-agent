@@ -2,6 +2,7 @@
 
 设计说明见 docs/design/backend/runtime.md。要点：
 - 一轮（step）= 一次模型调用 + 其引发的全部工具执行；
+- run() 支持流式（stream=True）：增量实时转发到总线，组装后与非流式同路径；
 - run() 永不因模型/工具失败抛异常（包装为 FAILED 的 RunResult）；
   唯一的例外是执行中重复调用 run()——那是调用方的编程错误；
 - 全部依赖都是 core 端口（BaseProvider / BaseToolExecutor / EventBus），
@@ -23,6 +24,8 @@ from ..core import (
     Message,
     MessageRole,
     MessageType,
+    ProviderResponse,
+    StreamType,
     Tool,
     ToolCall,
     ToolResult,
@@ -33,6 +36,7 @@ from .convert import (
     to_provider_messages,
 )
 from .history import MessageHistory
+from .stream import StreamAccumulator
 
 
 class RunStatus(str, Enum):
@@ -99,9 +103,12 @@ class AgentLoop:
         """当前运行状态（只读）"""
         return self._state
 
-    async def run(self, user_input: str) -> RunResult:
+    async def run(self, user_input: str, stream: bool = False) -> RunResult:
         """执行一次任务，返回 RunResult
 
+        stream=True 时模型调用走流式：正文/思考增量实时转发到总线
+        （MODEL_TEXT_DELTA / MODEL_THINKING_DELTA），碎片由 StreamAccumulator
+        组装回 ProviderResponse 后走与非流式完全相同的后续路径。
         模型/工具失败不抛异常（结果化为 RunResult）；
         执行中重复调用属于调用方的编程错误，抛 RuntimeError。
         """
@@ -121,10 +128,7 @@ class AgentLoop:
             self._emit(EventType.STEP_START, f"第 {step} 轮开始", step_index=step)
 
             try:
-                response = await self._provider.complete(
-                    to_provider_messages(self._context_view()),
-                    tools=self._tools or None,
-                )
+                response = await self._call_model(step, stream)
             except Exception as e:
                 # 模型不可达时无从喂回，终止任务并以结果形式上报
                 error = f"模型调用失败：{type(e).__name__}: {e}"
@@ -182,6 +186,36 @@ class AgentLoop:
             steps=self.agent.max_steps,
             token_used=total_tokens,
         )
+
+    async def _call_model(self, step: int, stream: bool) -> ProviderResponse:
+        """一次模型调用；stream=True 时走流式并转发增量事件
+
+        只有正文/思考增量对外转发（UI 关心的是文字流）；签名、加密思考、
+        工具调用碎片只进累加器——工具调用的可见性由 TOOL_EXECUTION_* 承担。
+        """
+        messages = to_provider_messages(self._context_view())
+        tools = self._tools or None
+        if not stream:
+            return await self._provider.complete(messages, tools=tools)
+
+        accumulator = StreamAccumulator()
+        async for event in self._provider.stream(messages, tools=tools):
+            if event.type == StreamType.TEXT_DELTA:
+                self._emit(
+                    EventType.MODEL_TEXT_DELTA,
+                    str(event.delta.get("content") or ""),
+                    step_index=step,
+                )
+            elif event.type == StreamType.THINKING_DELTA:
+                thinking = event.delta.get("thinking")
+                if thinking:
+                    self._emit(
+                        EventType.MODEL_THINKING_DELTA,
+                        str(thinking),
+                        step_index=step,
+                    )
+            accumulator.feed(event)
+        return accumulator.response()
 
     def _emit(self, event_type: EventType, content: str, **metadata: Any) -> None:
         """发射事件，统一携带 agent_id（多 Agent 场景的观测基础）"""
