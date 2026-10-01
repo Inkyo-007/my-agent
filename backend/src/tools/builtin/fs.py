@@ -154,7 +154,9 @@ class WriteFileTool(Tool):
             return _fail(f"路径越出工作区：{path}")
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            # write_bytes 而非 write_text：避免 Windows 文本模式把 \n 转成 \r\n，
+            # 保证写入内容与模型产出逐字节一致（成功消息的字节数也因此准确）
+            target.write_bytes(content.encode("utf-8"))
         except OSError as e:
             return _fail(f"写入失败：{type(e).__name__}: {e}")
         return ToolResult(
