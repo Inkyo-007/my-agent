@@ -69,7 +69,7 @@ class StreamProviderResponse:
     - THINKING_DELTA:   {"thinking": str} 或 {"signature": str} 或 {"redacted_thinking": str}
     - TOOL_CALL_DELTA:  {"index": int, "id": str|None, "name": str|None, "input": str|None}
                         （id/name 仅首个碎片携带，input 为 JSON 文本碎片）
-    - START:            {"role": str}
+    - START:            {"role": str, "model": str}（model 供上层组装 ProviderResponse 使用）
     - STOP:             {"finish_reason": str}，且 token_used 字段携带完整统计；
                         STOP 一定是流的最后一个事件
     """

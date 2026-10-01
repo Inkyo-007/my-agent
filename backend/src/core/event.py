@@ -24,6 +24,14 @@ class EventType(str, Enum):
     STEP_END = "step_end"
     STEP_FAILED = "step_failed"
 
+    # 模型增量事件（流式）
+    # 与生命周期事件（一次性）不同：增量事件高频、携带的是文本碎片，
+    # 订阅者按需取用——UI 实时渲染，日志类订阅者通常忽略。
+    # 与 core/provider.py 的 StreamType 对齐：正文与思考分列，
+    # 因为渲染策略不同（正文是主输出，思考常折叠/淡化）。
+    MODEL_TEXT_DELTA = "model_text_delta"
+    MODEL_THINKING_DELTA = "model_thinking_delta"
+
     # 工具事件
     TOOL_CALL_REQUEST = "tool_call_request"
     TOOL_EXECUTION_START = "tool_execution_start"
