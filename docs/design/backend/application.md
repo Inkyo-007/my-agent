@@ -38,15 +38,19 @@ poe chat                                # 终端冒烟对话
 
 ```python
 from src.application import create_app, load_model_config
+from src.tools.builtin import ReadFileTool, WriteFileTool
 
-app = create_app(load_model_config())   # tools=None：内置工具待 tools/builtin 落地
+app = create_app(
+    load_model_config(),
+    tools=[ReadFileTool(workspace), WriteFileTool(workspace)],
+)
 app.bus.subscribe(my_handler)
 result = await app.loop.run("你好")
 ```
 
 ## 已知边界
 
-- **无预装工具**：tools 层的 `builtin/` 尚未落地（M2），`create_app(tools=...)` 是预留的接入口。当前 CLI 只能跑纯问答；工具调用链路已由离线集成测试覆盖。
+- **预装工具仅文件读写**：CLI 接入了 builtin 的 `read_file` / `write_file`（工作区根目录在 `__main__.py` 中配置）；`shell_command` 待审批钩子就位后引入（约定见 tools.md「内置工具」）。
 - **无会话持久化**：进程退出即丢失历史，由 memory 层解决；落地后 application 负责把恢复的 `MessageHistory` 接进 `AgentLoop`。
 - **无流式输出**：与 runtime 层一致，待 UI 接入前补充。
 - **配置项刻意最少**：只覆盖协议类型、密钥、模型、base_url。思考档位、max_tokens 等调参项等真实需求出现时再加（届时只动 config.py）。
