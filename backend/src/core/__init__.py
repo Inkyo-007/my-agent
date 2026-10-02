@@ -16,6 +16,7 @@ from .provider import (
 )
 from .tool import (
     BaseToolExecutor,
+    HookDecision,
     HookVerdict,
     Tool,
     ToolCall,
@@ -41,6 +42,7 @@ __all__ = [
     "ToolDefinition",
     "ToolInputSchema",
     "ToolResult",
+    "HookDecision",
     "HookVerdict",
     "BaseToolExecutor",
     "BaseProvider",

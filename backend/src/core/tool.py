@@ -6,6 +6,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List
 
 # 权限标签的语法契约："{领域}:{动作}"，小写字母/数字/下划线。
@@ -23,6 +24,19 @@ class ToolResult:
     error_type: str | None = None
 
 
+class HookDecision(str, Enum):
+    """执行钩子裁决的种类
+
+    ASK_USER 是策略层的中间裁决：审批通道（如何询问用户、等待回答）由
+    security 在钩子内部解决，裁决到达 executor 时应已收敛为 ALLOW 或 DENY；
+    若 ASK_USER 泄漏到 executor，executor 按拒绝兜底（fail-closed）。
+    """
+
+    ALLOW = "allow"
+    DENY = "deny"
+    ASK_USER = "ask_user"
+
+
 @dataclass
 class HookVerdict:
     """执行钩子的裁决（security 等策略模块的回答）
@@ -30,13 +44,28 @@ class HookVerdict:
     与 ToolResult 同属「工具执行的反馈」家族：
     ToolResult 是执行之后的结果，HookVerdict 是执行之前的放行裁决。
 
-    拦截（allowed=False）是正常业务流程（如用户拒绝），不是异常；
+    拦截（DENY）是正常业务流程（如用户拒绝），不是异常；
     reason 会被 executor 包装进 ToolResult.content 喂回模型，
     使模型能得体地向用户解释，而非盲目重试。
     """
 
-    allowed: bool
+    decision: HookDecision
     reason: str = ""
+
+    @classmethod
+    def allow(cls) -> "HookVerdict":
+        """放行"""
+        return cls(decision=HookDecision.ALLOW)
+
+    @classmethod
+    def deny(cls, reason: str = "") -> "HookVerdict":
+        """拦截；reason 说明理由（会喂回模型）"""
+        return cls(decision=HookDecision.DENY, reason=reason)
+
+    @classmethod
+    def ask_user(cls, reason: str = "") -> "HookVerdict":
+        """需用户裁决；reason 说明需要审批的原因"""
+        return cls(decision=HookDecision.ASK_USER, reason=reason)
 
 
 @dataclass

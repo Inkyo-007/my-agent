@@ -3,7 +3,7 @@
 流水线（任一步失败即包装为 ToolResult 返回，不抛异常）：
 1. validator.check_tool_exists    → error_type="tool_not_found"
 2. validator.validate_tool_input  → error_type="invalid_input"
-3. 钩子链（首个否决短路）          → error_type="permission_denied"
+3. 异步钩子链（首个非放行裁决短路） → error_type="permission_denied"
 4. 执行（超时控制 + 异常兜底）     → error_type="timeout" / "execution_error"
 
 error_type 是稳定契约（上述五个值），供 UI/审计/循环分类消费；
@@ -12,13 +12,14 @@ error_type 是稳定契约（上述五个值），供 UI/审计/循环分类消�
 
 import asyncio
 import time
-from typing import Callable, List
+from typing import Awaitable, Callable, List
 
 from ..core import (
     BaseToolExecutor,
     EventBus,
     EventEmitter,
     EventType,
+    HookDecision,
     HookVerdict,
     ToolCall,
     ToolDefinition,
@@ -28,9 +29,10 @@ from .registry import ToolRegistry
 from .validator import check_tool_exists, validate_tool_input
 
 # 执行钩子：工具执行前的策略检查点（security 的挂载点）。
-# 任何符合此签名的可调用对象都是合法实现——普通函数，
+# 任何符合此签名的可调用对象都是合法实现——异步函数，
 # 或将来 security 模块里某个管理器的绑定方法（如 manager.before_execute）。
-ExecutionHook = Callable[[ToolCall, ToolDefinition], HookVerdict]
+# 异步签名是审批场景的硬需求：等待用户裁决（终端确认、Web 弹窗）不能阻塞事件循环。
+ExecutionHook = Callable[[ToolCall, ToolDefinition], Awaitable[HookVerdict]]
 
 # 成功事件携带的结果摘要长度上限：事件是通知（供 UI 预览、日志检索），
 # 完整结果在 ToolResult 与 history 中，不应随事件广播给全部订阅者
@@ -83,15 +85,17 @@ class ToolExecutor(BaseToolExecutor):
         if errors:
             return self._fail(tool_call, "invalid_input", "；".join(errors))
 
-        # 3. 钩子链：首个否决即短路
+        # 3. 钩子链：首个非放行裁决即短路
         for hook in self.hooks:
-            verdict = hook(tool_call, tool.definition)
-            if not verdict.allowed:
-                return self._fail(
-                    tool_call,
-                    "permission_denied",
-                    verdict.reason or "执行被策略钩子拒绝",
-                )
+            verdict = await hook(tool_call, tool.definition)
+            if verdict.decision == HookDecision.ALLOW:
+                continue
+            reason = verdict.reason or "执行被策略钩子拒绝"
+            if verdict.decision == HookDecision.ASK_USER:
+                # 审批通道应由 security 在钩子内部解决；泄漏到此说明未接线，
+                # fail-closed 按拒绝处理
+                reason = f"{reason}（待用户审批，但审批通道未接入，按拒绝处理）"
+            return self._fail(tool_call, "permission_denied", reason)
 
         # 4. 执行（execution_time 只计工具实际调用耗时）
         start = time.perf_counter()

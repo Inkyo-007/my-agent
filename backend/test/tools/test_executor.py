@@ -150,8 +150,8 @@ class Test钩子链:
     async def test_钩子否决时工具不被调用(self):
         tool = make_tool()
 
-        def deny_hook(tool_call, definition):
-            return HookVerdict(allowed=False, reason="当前会话为只读模式")
+        async def deny_hook(tool_call, definition):
+            return HookVerdict.deny("当前会话为只读模式")
 
         result = await make_executor(tool, hooks=[deny_hook]).execute(weather_call())
         assert result.success is False
@@ -163,21 +163,46 @@ class Test钩子链:
         result = await make_executor(make_tool()).execute(weather_call())
         assert result.success is True
 
-    async def test_首个否决即短路(self):
+    async def test_首个非放行裁决即短路(self):
         calls = []
 
-        def deny_hook(tc, d):
+        async def deny_hook(tc, d):
             calls.append("deny")
-            return HookVerdict(allowed=False, reason="拒绝")
+            return HookVerdict.deny("拒绝")
 
-        def spy_hook(tc, d):
+        async def spy_hook(tc, d):
             calls.append("spy")
-            return HookVerdict(allowed=True)
+            return HookVerdict.allow()
 
         await make_executor(make_tool(), hooks=[deny_hook, spy_hook]).execute(
             weather_call()
         )
         assert calls == ["deny"]  # 第二个钩子未被调用
+
+    async def test_ASK_USER泄漏到执行器按拒绝兜底(self):
+        # 审批通道应由 security 在钩子内部解决；执行器收到 ASK_USER 说明未接线，
+        # fail-closed 按拒绝处理
+        tool = make_tool()
+
+        async def ask_hook(tool_call, definition):
+            return HookVerdict.ask_user("危险操作需要用户确认")
+
+        result = await make_executor(tool, hooks=[ask_hook]).execute(weather_call())
+        assert result.success is False
+        assert result.error_type == "permission_denied"
+        assert "危险操作需要用户确认" in result.content
+        assert "审批通道未接入" in result.content
+        assert tool.called is False
+
+    async def test_钩子缺省理由时使用默认文案(self):
+        async def deny_hook(tool_call, definition):
+            return HookVerdict.deny()
+
+        result = await make_executor(make_tool(), hooks=[deny_hook]).execute(
+            weather_call()
+        )
+        assert result.error_type == "permission_denied"
+        assert result.content == "执行被策略钩子拒绝"
 
 
 class Test执行异常:
