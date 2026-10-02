@@ -521,9 +521,7 @@ class Test并行工具执行:
         result = await loop.run("失败隔离测试")
 
         assert result.status == RunStatus.COMPLETED
-        results = [
-            m for m in loop.history.messages if isinstance(m, ToolResultMessage)
-        ]
+        results = [m for m in loop.history.messages if isinstance(m, ToolResultMessage)]
         assert len(results) == 2
         assert results[0].status == "execution_error"
         assert "炸了" in results[0].content

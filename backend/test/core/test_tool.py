@@ -20,7 +20,9 @@ def _make_definition(permission_required: list[str] | None) -> ToolDefinition:
 
 class Test权限标签格式校验:
     def test_合法标签通过校验(self):
-        definition = _make_definition(["fs:read", "fs:write", "shell:execute", "net:fetch_v2"])
+        definition = _make_definition(
+            ["fs:read", "fs:write", "shell:execute", "net:fetch_v2"]
+        )
         assert definition.permission_required == [
             "fs:read",
             "fs:write",
@@ -37,14 +39,14 @@ class Test权限标签格式校验:
     @pytest.mark.parametrize(
         "tag",
         [
-            "fsread",       # 缺少冒号
-            "fs:",          # 缺少动作
-            ":read",        # 缺少领域
-            "FS:read",      # 大写
-            "fs:READ",      # 大写动作
-            "fs:read file", # 含空格
+            "fsread",  # 缺少冒号
+            "fs:",  # 缺少动作
+            ":read",  # 缺少领域
+            "FS:read",  # 大写
+            "fs:READ",  # 大写动作
+            "fs:read file",  # 含空格
             "fs:read:all",  # 多于一段
-            "",             # 空字符串
+            "",  # 空字符串
         ],
     )
     def test_非法标签构造期抛错(self, tag: str):
