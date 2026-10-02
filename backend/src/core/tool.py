@@ -3,9 +3,14 @@
 无论是读文件、执行命令，还是调用 API，都要实现 Tool 基类。
 """
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
+
+# 权限标签的语法契约："{领域}:{动作}"，小写字母/数字/下划线。
+# 只约束形式，不枚举领域——领域会不断生长，语法不会（见 docs/design/backend/core.md）。
+_PERMISSION_TAG_RE = re.compile(r"^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$")
 
 
 @dataclass
@@ -75,6 +80,11 @@ class ToolDefinition:
     def __post_init__(self):
         if self.permission_required is None:
             self.permission_required = []
+        for tag in self.permission_required:
+            if not _PERMISSION_TAG_RE.fullmatch(tag):
+                raise ValueError(
+                    f"非法权限标签：{tag!r}（应为 '领域:动作' 小写格式，如 fs:read）"
+                )
 
 
 class Tool(ABC):
