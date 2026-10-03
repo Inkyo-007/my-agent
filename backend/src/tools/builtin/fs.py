@@ -20,6 +20,8 @@ from ...core import Tool, ToolDefinition, ToolInputSchema, ToolResult
 MAX_LINES = 2000
 
 
+# 路径围栏：工具自身的正确性约束（物理边界），存续至执行器集成落地——
+# 届时路径内/外由 security 统一裁决（工作区外经审批放行），本函数随围栏移除
 def _resolve_in_root(root: Path, path: str) -> Path | None:
     """将工具参数路径解析为绝对路径；越出根目录时返回 None
 
@@ -49,6 +51,7 @@ class ReadFileTool(Tool):
             properties={
                 "path": {
                     "type": "string",
+                    "format": "path",
                     "description": "文件路径（相对工作区根目录，或绝对路径）",
                 },
                 "offset": {
@@ -127,6 +130,7 @@ class WriteFileTool(Tool):
             properties={
                 "path": {
                     "type": "string",
+                    "format": "path",
                     "description": "文件路径（相对工作区根目录，或绝对路径）",
                 },
                 "content": {
