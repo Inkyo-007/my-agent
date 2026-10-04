@@ -19,7 +19,7 @@
 | [tools.md](./tools.md) | 工具执行层：工具的注册、校验与执行 | 已完成 |
 | [runtime.md](./runtime.md) | 运行时引擎层：Agent 主循环、会话历史、事件总线实现 | 已完成 |
 | [application.md](./application.md) | 组合根：配置加载、各层实例的创建与接线、CLI 冒烟入口 | 已完成 |
-| [security.md](./security.md) | 安全防护层：权限决策、路径校验、命令护栏、执行器集成 | 开发中（三个子层与执行器集成已落地，application 层接线待做） |
+| [security.md](./security.md) | 安全防护层：权限决策、路径校验、命令护栏、执行器集成 | 已完成（CLI 审批通道已接入；审批记忆、Web 通道留待后续） |
 
 注意：application 层是对当前已实现的其它层进行组合，日后进行增量开发时，需要再对 application 进行补充。
 

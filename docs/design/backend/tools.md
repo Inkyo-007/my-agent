@@ -16,7 +16,7 @@ tools 层负责工具的注册、校验与执行。理解本层的关键是**机
 | `registry.py` | `ToolRegistry`：工具的注册、注册时校验、按名查找 |
 | `validator.py` | 机械校验（存在性、参数 schema），纯函数、无状态 |
 | `executor.py` | `ToolExecutor`：执行流水线，含执行钩子与事件发射；实现 core 的 `BaseToolExecutor` 端口 |
-| `builtin/` | 预装工具（内容层）：`fs.py` 含 `read_file` / `write_file`，约定见「内置工具」一节 |
+| `builtin/` | 预装工具（内容层）：`fs.py` 含 `read_file` / `write_file`，`shell.py` 含 `shell_command`，约定见「内置工具」一节 |
 
 三者的分工：注册表只管「存与取」，校验器只管「确定性检查」，执行器负责把各环节编排成流水线。任何一环的具体规则都不混进其他环节。
 
@@ -64,24 +64,28 @@ tools 层负责工具的注册、校验与执行。理解本层的关键是**机
 注意两点约定：
 
 - **权限标签要保守诚实**：可能写就必须声明 `write`，宁可多声明。声明是给安全钩子看的静态事实，漏报等于绕过安全检查；
-- **路径参数用 `format` 标注**：接收文件路径的参数在 input_schema 中声明 `"format": "path"`——这是 JSON Schema 的标准注解关键字，校验器不传 format checker 时会忽略它（不影响参数校验），security 的路径校验子层用它声明式提取待检路径，该标注也随 schema 发给模型；
+- **路径/命令参数用 `format` 标注**：接收文件路径的参数声明 `"format": "path"`，接收 shell 命令的参数声明 `"format": "command"`——这是 JSON Schema 的标准注解关键字，校验器不传 format checker 时会忽略它（不影响参数校验），security 用它声明式提取待检路径与待分析命令，该标注也随 schema 发给模型；
 - **工具发现采用显式注册**：在入口处逐个 `register`，不做目录扫描式自动发现。显式注册让「这个 Agent 带了哪些工具」一目了然；自动发现等真实需求出现再考虑。
 
 ## 内置工具（builtin/）
 
-机制与内容分离的「内容」一侧。这里只是预装工具，地位与将来从 MCP 适配来的、用户自加的工具完全平等。当前包含 `read_file`（`fs:read`）与 `write_file`（`fs:write`）。
+机制与内容分离的「内容」一侧。这里只是预装工具，地位与将来从 MCP 适配来的、用户自加的工具完全平等。当前包含 `read_file`（`fs:read`）、`write_file`（`fs:write`）与 `shell_command`（`shell:execute`）。
 
 所有内置工具必须遵守的约定：
 
-- **路径围栏**：工具构造时注入 `root_dir`，所有路径（含符号链接）resolve 后必须仍在根目录内，越界直接失败。围栏是工具自身的正确性约束（物理边界），不是权限策略。**围栏存续至执行器集成落地**：届时路径内/外由 security 统一裁决（工作区外经审批放行），围栏与本地解析函数一并移除。
+- **路径解析，不做边界检查**：工具构造时注入 `root_dir`，相对路径基于它 resolve（含符号链接）。围栏已上移 security——执行器集成落地后，路径内/外由 security 统一裁决（工作区外经审批放行），工具只负责忠实执行。
 - **输出截断**：`read_file` 单次默认最多返回 2000 行（可用 `offset`/`limit` 分页），截断时在结果中明确标注总行数与已显示范围——模型需要知道有截断才能决定下一步。
-- **失败即结果**：文件不存在、非 UTF-8、路径越界、写入冲突等都返回 `ToolResult(success=False)` 加具体文案，不抛异常（executor 契约）。
+- **失败即结果**：文件不存在、非 UTF-8、非零退出码、shell 启动失败等都返回 `ToolResult(success=False)` 加具体文案，不抛异常（executor 契约）。
 - **权限标签保守诚实**：见「如何新增一个工具」。
 
-`shell_command` 刻意暂缓：路径围栏对命令执行无效（能力边界即 OS 权限），在审批钩子就位前不引入。
+`shell_command` 的两点特殊设计：
+
+- **方言无关**：工具不感知 bash / pwsh 差异，只按注入的 `ShellProgram`（可执行文件 + 参数模板）拼接调用——避免 tools → security 的依赖（方言枚举在 security），探测与映射在 application 层（`shell_env.py`）；definition 是实例属性，描述中告知模型当前方言，模型据此写出语法正确的命令；
+- **安全裁决全部上移**：工具自身不设任何护栏——危险命令硬阻断、工作区外 cwd 审批都由 security 在执行前完成（`command` 标注 `format: "command"`、`cwd` 标注 `format: "path"`）；执行器超时经取消传达时，工具负责杀掉子进程，避免进程泄漏。
 
 ## 测试方式
 
 - 注册表与校验器是普通单测：构造内存中的注册表与虚拟工具即可；
 - 执行器测试覆盖流水线的每个分支：成功、四类失败、钩子否决与短路、ASK_USER 泄漏兜底、事件序列、无事件总线时的静默。耗时与异常通过可控的 `StubTool` 模拟（`delay` 参数触发超时，`error` 参数触发内部异常）；
-- 事件总线用收集型测试替身（`CollectingBus`）断言事件序列与元数据。
+- 事件总线用收集型测试替身（`CollectingBus`）断言事件序列与元数据；
+- `shell_command` 真实拉起子进程验证输出捕获、退出码、cwd 解析与取消回收，本机没有对应 shell 时跳过（探测逻辑在 application 层另有离线测试）。

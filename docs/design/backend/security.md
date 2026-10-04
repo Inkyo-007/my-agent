@@ -33,7 +33,7 @@ security 是安全防护层：工具执行前的权限检查。危险操作在�
 
 关键设计：
 
-- **与 fs 工具硬围栏的层次关系**：builtin 文件工具的围栏是工具自身的正确性约束（物理边界），**存续至执行器集成落地**——当前空钩子链等于全部放行，提前拆围栏会让工作区外写入静默通过。集成落地后围栏移除：读写工具只接收路径，内/外由本层分析，工作区外经审批放行。
+- **与读写工具的分工**：执行器集成落地后，fs 工具内曾经的路径硬围栏已移除——读写工具只接收路径并忠实执行，内/外由本层分析，工作区外经审批放行。`shell_command` 同理：工具自身不设护栏，危险命令与界外 cwd 都在执行前裁决。
 - **解析机制内聚在本层**：「规范化 + 判内外」（`resolve_in_root`）只有 security 需要，按 core 章程（针对某一层的内容不下沉）留在本层；将来若有他层需要，再收敛到 core。判定经 NFC 归一化、符号链接展开、`is_relative_to` 比较，不用字符串前缀比较。
 - **fail-closed**：无法解析的路径判 `INVALID`，`PathReport.touches_outside` 将其按界外同等对待。
 - **不吸收参考实现中的 URL 迭代解码**：我们的路径来自模型工具调用的 JSON（已解码一次），链路上没有第二次 URL 解析；主动解码反而会把无害字符串变成穿越路径。
@@ -99,14 +99,14 @@ decide 的输出是 core 的 `HookVerdict` 三态裁决（`ALLOW` / `DENY` / `AS
 1. **命令护栏先行**：对 `format == "command"` 标注的参数运行 `analyze()`，命中 BLOCK 规则直接 `DENY`——硬阻断在任何模式（含完全访问）下生效，不走审批；
 2. **路径校验**：汇总两类路径——schema 中 `format == "path"` 标注的参数值，与护栏从命令中提取的 `referenced_paths`（cd 目标、重定向目标）——保序去重后经 `PathValidator` 判定，`touches_outside` 作为裁决触发器；
 3. **裁决矩阵**：`decide(mode, risk, triggers)` 输出三态；命令 `unparsable` 在完全访问模式下升级为 `ASK_USER`（分析不了的命令不给静默放行）；
-4. **审批通道**：`ASK_USER` 经 `Approver` 协议（`async def approve(request: ApprovalRequest) -> bool`）解决，请求携带工具名、理由、界外路径与护栏标注，供 UI 展示；审批经 `asyncio.Lock` 串行化，避免并发弹窗。未注入审批通道时 fail-closed 按拒绝处理。
+4. **审批通道**：`ASK_USER` 经 `Approver` 协议（`async def approve(request: ApprovalRequest) -> bool`）解决，请求携带工具名、理由、**工具输入原文**（要执行的命令、要写入的路径——审批必须指名道姓，用户才能做知情决定）、界外路径与护栏标注，供 UI 展示；审批经 `asyncio.Lock` 串行化，避免并发弹窗。未注入审批通道时 fail-closed 按拒绝处理。
 
 钩子返回前发布审计事件：每次调用的裁决（`PERMISSION_CHECK`）、审批请求（`APPROVAL_REQUEST`）、硬阻断（`DENIAL_REQUEST`），source 均为 `secure_executor`。审批通道的具体实现（CLI 询问、Web 弹窗）在 application 层注入，本层不感知。
 
 ## 已知边界
 
-- **审批通道的具体实现未接入**：`Approver` 协议已就位，但 CLI 询问 / Web 弹窗的实现随 application 层接线落地；未注入审批通道时钩子 fail-closed 按拒绝处理；
-- **shell 工具本体未落地**：`shell_command` 工具（`command` 参数标注 `format: "command"`、`cwd` 标注 `format: "path"`）与方言探测（bash → pwsh → powershell）在 application 层接线时一并落地；落地后移除 fs.py 的工作区硬围栏（见「路径校验」节）。
+- **审批记忆未实现**：每次询问相互独立，「本次会话不再询问」「始终允许该工具」类规则持久化留待后续（v1 的 Approver 回答只有放行/拒绝二值）；
+- **CLI 审批通道已接入**：application 层的 `CliApprover`（终端 y/N）是 Approver 的首个实现；Web 弹窗随前端落地后作为另一个实现注入。
 
 ## 测试方式
 
