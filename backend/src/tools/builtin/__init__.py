@@ -5,5 +5,6 @@
 """
 
 from .fs import ReadFileTool, WriteFileTool
+from .shell import ShellCommandTool, ShellProgram
 
-__all__ = ["ReadFileTool", "WriteFileTool"]
+__all__ = ["ReadFileTool", "ShellCommandTool", "ShellProgram", "WriteFileTool"]
