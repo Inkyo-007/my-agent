@@ -18,7 +18,7 @@ security 唯一与 tools 层接触的出口：实现 ExecutionHook 签名
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Protocol
+from typing import Any, Dict, List, Protocol
 
 from ..core import (
     EventBus,
@@ -81,12 +81,14 @@ def decide(
 class ApprovalRequest:
     """一次审批请求：审批者渲染提示所需的全部细节
 
-    审批必须指名道姓——「有个路径越界了」的提示无法支撑知情决定，
-    因此携带具体的界外路径与护栏命中明细。
+    审批必须指名道姓——「有个高危操作要执行」的提示无法支撑知情决定，
+    因此携带工具输入原文（要执行的命令、要写入的路径）、界外路径与
+    护栏命中明细。
     """
 
     tool_name: str
     reason: str  # 裁决理由（触发器 / 高危 / 不可解析）
+    tool_input: Dict[str, Any] = field(default_factory=dict)  # 工具输入原文
     outside_paths: List[str] = field(default_factory=list)  # 界外路径（参数原文）
     flagged: List[FlaggedCommand] = field(default_factory=list)  # 护栏命中明细
 
@@ -183,6 +185,7 @@ class SecureExecutor:
         request = ApprovalRequest(
             tool_name=definition.name,
             reason=verdict.reason,
+            tool_input=dict(tool_call.input),
             outside_paths=outside_paths,
             flagged=flagged,
         )

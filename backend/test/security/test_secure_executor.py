@@ -176,6 +176,8 @@ class Test请求询问模式流水线:
         )
         assert verdict.decision is HookDecision.ALLOW  # 用户放行后收敛为 ALLOW
         assert approver.requests[0].outside_paths == ["../secret.txt"]
+        # 审批请求携带工具输入原文，用户据此判断要不要放行
+        assert approver.requests[0].tool_input == {"path": "../secret.txt"}
         assert "工作区外" in approver.requests[0].reason
 
     async def test_用户拒绝(self, tmp_path: Path):
