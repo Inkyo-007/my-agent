@@ -1,11 +1,12 @@
 """内置文件工具：read_file / write_file
 
 约定（详见 docs/design/backend/tools.md「内置工具」一节）：
-- 路径围栏：root_dir 构造时注入，所有路径 resolve（含符号链接）后必须
-  仍在根目录内，越界直接失败——这是工具自身的正确性约束，不是权限策略；
+- 路径解析：root_dir 构造时注入，相对路径基于根目录 resolve（含符号
+  链接）；本模块不做边界检查——路径内/外的裁决在 security 层
+  （工作区外经审批放行），工具只负责忠实执行；
 - 输出截断：read_file 单次默认最多返回 MAX_LINES 行，截断时标注总行数
   与已显示范围，模型可据 offset/limit 分页再读；
-- 失败即结果：文件不存在、非 UTF-8、路径越界等都返回 success=False
+- 失败即结果：文件不存在、非 UTF-8 等都返回 success=False
   加具体文案，不抛异常。
 """
 
@@ -20,18 +21,14 @@ from ...core import Tool, ToolDefinition, ToolInputSchema, ToolResult
 MAX_LINES = 2000
 
 
-# 路径围栏：工具自身的正确性约束（物理边界），存续至执行器集成落地——
-# 届时路径内/外由 security 统一裁决（工作区外经审批放行），本函数随围栏移除
-def _resolve_in_root(root: Path, path: str) -> Path | None:
-    """将工具参数路径解析为绝对路径；越出根目录时返回 None
+def _resolve(root: Path, path: str) -> Path:
+    """将工具参数路径解析为绝对路径（相对路径基于工作区根目录）
 
-    resolve() 会展开符号链接，因此 symlink 逃逸同样被拦截。
+    resolve() 会展开符号链接。不做边界检查：路径内/外由 security
+    统一裁决（工作区外经审批放行），见 docs/design/backend/security.md。
     """
 
-    resolved = (root / path).resolve()
-    if resolved.is_relative_to(root):
-        return resolved
-    return None
+    return (root / path).resolve()
 
 
 def _fail(message: str) -> ToolResult:
@@ -39,13 +36,14 @@ def _fail(message: str) -> ToolResult:
 
 
 class ReadFileTool(Tool):
-    """读取工作区内文件内容（带行号，超限截断）"""
+    """读取文件内容（带行号，超限截断）；界外读取由 security 审批"""
 
     definition = ToolDefinition(
         name="read_file",
         description=(
-            "读取工作区内文件的内容，返回带行号的文本。文件较大时只返回"
-            " limit 指定的行数并标注截断，可用 offset/limit 分页读取。"
+            "读取文件的内容，返回带行号的文本。路径相对工作区根目录解析"
+            "（也可是绝对路径）；访问工作区外的文件会先经用户审批。"
+            "文件较大时只返回 limit 指定的行数并标注截断，可用 offset/limit 分页读取。"
         ),
         input_schema=ToolInputSchema(
             properties={
@@ -83,9 +81,7 @@ class ReadFileTool(Tool):
         return await asyncio.to_thread(self._read, path, offset, limit)
 
     def _read(self, path: str, offset: int, limit: int) -> ToolResult:
-        target = _resolve_in_root(self._root, path)
-        if target is None:
-            return _fail(f"路径越出工作区：{path}")
+        target = _resolve(self._root, path)
         if not target.exists():
             return _fail(f"文件不存在：{path}")
         if target.is_dir():
@@ -118,13 +114,14 @@ class ReadFileTool(Tool):
 
 
 class WriteFileTool(Tool):
-    """写入工作区内文件（不存在则创建，已存在则覆盖，自动创建父目录）"""
+    """写入文件（不存在则创建，已存在则覆盖，自动创建父目录）；界外写入由 security 审批"""
 
     definition = ToolDefinition(
         name="write_file",
         description=(
-            "将内容写入工作区内的文件：不存在则创建（自动创建父目录），"
-            "已存在则整体覆盖。如需局部修改，先 read_file 再整体重写。"
+            "将内容写入文件：不存在则创建（自动创建父目录），已存在则整体覆盖。"
+            "路径相对工作区根目录解析（也可是绝对路径）；写入工作区外的文件"
+            "会先经用户审批。如需局部修改，先 read_file 再整体重写。"
         ),
         input_schema=ToolInputSchema(
             properties={
@@ -153,9 +150,7 @@ class WriteFileTool(Tool):
         return await asyncio.to_thread(self._write, path, content)
 
     def _write(self, path: str, content: str) -> ToolResult:
-        target = _resolve_in_root(self._root, path)
-        if target is None:
-            return _fail(f"路径越出工作区：{path}")
+        target = _resolve(self._root, path)
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             # write_bytes 而非 write_text：避免 Windows 文本模式把 \n 转成 \r\n，
@@ -163,8 +158,13 @@ class WriteFileTool(Tool):
             target.write_bytes(content.encode("utf-8"))
         except OSError as e:
             return _fail(f"写入失败：{type(e).__name__}: {e}")
+        # 界外路径无法 relative_to（会抛 ValueError），此时展示绝对路径
+        try:
+            shown = str(target.relative_to(self._root))
+        except ValueError:
+            shown = str(target)
         return ToolResult(
             success=True,
-            content=f"已写入 {target.relative_to(self._root)}（{len(content.encode('utf-8'))} 字节）",
+            content=f"已写入 {shown}（{len(content.encode('utf-8'))} 字节）",
             execution_time=0.0,
         )

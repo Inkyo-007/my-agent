@@ -1,6 +1,6 @@
 """tools/builtin/fs.py 的离线单元测试
 
-用 tmp_path 隔离真实文件系统，重点覆盖：路径围栏越界、截断分页、
+用 tmp_path 隔离真实文件系统，重点覆盖：工作区外路径（围栏上移 security 后工具不再拦截）、截断分页、
 各类失败语义（失败即结果，不抛异常）。
 """
 
@@ -47,16 +47,25 @@ class TestReadFile:
         assert result.success is False
         assert "目录" in result.content
 
-    async def test_相对路径越界被拦截(self, tmp_path):
-        result = await ReadFileTool(tmp_path).call({"path": "../outside.txt"})
-        assert result.success is False
-        assert "越出工作区" in result.content
+    async def test_工作区外绝对路径可读取(self, tmp_path, tmp_path_factory):
+        # 围栏已上移 security（工作区外经审批放行），工具本身不再拦截
+        outside_dir = tmp_path_factory.mktemp("outside")
+        (outside_dir / "outside.txt").write_text("外部内容", encoding="utf-8")
+        result = await ReadFileTool(tmp_path).call(
+            {"path": str(outside_dir / "outside.txt")}
+        )
+        assert result.success is True
+        assert "外部内容" in result.content
 
-    async def test_绝对路径越界被拦截(self, tmp_path):
-        outside = tmp_path.parent / "outside.txt"
-        result = await ReadFileTool(tmp_path).call({"path": str(outside)})
-        assert result.success is False
-        assert "越出工作区" in result.content
+    async def test_相对路径解析到工作区外(self, tmp_path_factory):
+        root = tmp_path_factory.mktemp("root")
+        outside_dir = tmp_path_factory.mktemp("outside")
+        (outside_dir / "outside.txt").write_text("外部内容", encoding="utf-8")
+        result = await ReadFileTool(root).call(
+            {"path": f"../{outside_dir.name}/outside.txt"}
+        )
+        assert result.success is True
+        assert "外部内容" in result.content
 
     async def test_非UTF8文件(self, tmp_path):
         (tmp_path / "bin.dat").write_bytes(b"\xff\xfe\x00\x01")
@@ -92,13 +101,17 @@ class TestWriteFile:
         assert result.success is True
         assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "新内容"
 
-    async def test_越界写入被拦截(self, tmp_path):
-        result = await WriteFileTool(tmp_path).call(
-            {"path": "../evil.txt", "content": "x"}
+    async def test_工作区外写入不再被工具拦截(self, tmp_path_factory):
+        # 界外写入的审批在 security 层；工具只负责忠实执行
+        root = tmp_path_factory.mktemp("root")
+        outside_dir = tmp_path_factory.mktemp("outside")
+        result = await WriteFileTool(root).call(
+            {"path": f"../{outside_dir.name}/out.txt", "content": "外部写入"}
         )
-        assert result.success is False
-        assert "越出工作区" in result.content
-        assert not (tmp_path.parent / "evil.txt").exists()
+        assert result.success is True
+        assert (outside_dir / "out.txt").read_text(encoding="utf-8") == "外部写入"
+        # 界外路径无法相对工作区展示，成功消息回退为绝对路径
+        assert str((outside_dir / "out.txt").resolve()) in result.content
 
     async def test_目标是目录时失败(self, tmp_path):
         (tmp_path / "adir").mkdir()
