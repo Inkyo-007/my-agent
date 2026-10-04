@@ -9,11 +9,15 @@ Web UI 待前端落地后以订阅事件总线的方式接入。
 """
 
 import asyncio
+from pathlib import Path
 
 from ..core import Event, EventType, MessageRole
-from ..tools.builtin import ReadFileTool, WriteFileTool
+from ..security import ShellDialect
+from ..tools.builtin import ReadFileTool, ShellCommandTool, WriteFileTool
 from .app import create_app
-from .config import ConfigError, load_model_config
+from .approval import CliApprover
+from .config import ConfigError, load_model_config, load_permission_mode
+from .shell_env import detect_shell
 
 PATH_TO_OWN_TESTS = "D:\\Project\\my-agent\\backend\\own_tests"
 
@@ -73,16 +77,35 @@ def _print_event(event: Event) -> None:
 async def _main() -> None:
     try:
         config = load_model_config()
+        mode = load_permission_mode()
     except ConfigError as e:
         print(f"配置错误：{e}")
         return
 
+    root = Path(PATH_TO_OWN_TESTS)
+    tools = [ReadFileTool(root), WriteFileTool(root)]
+    shell = detect_shell()
+    if shell is not None:
+        tools.append(ShellCommandTool(shell.program, root))
+    else:
+        print(
+            "未检测到可用的 shell（bash/pwsh/powershell），本次会话无 shell_command 工具"
+        )
+
     app = create_app(
         config=config,
-        tools=[ReadFileTool(PATH_TO_OWN_TESTS), WriteFileTool(PATH_TO_OWN_TESTS)],
+        tools=tools,
+        workspace_root=root,
+        permission_mode=mode,
+        approver=CliApprover(),
+        shell_dialect=shell.dialect if shell else ShellDialect.BASH,
     )
     app.bus.subscribe(_print_event)
-    print(f"my-agent 冒烟终端（模型：{config.model_id}，流式，空行退出）")
+    shell_desc = shell.program.program if shell else "无"
+    print(
+        f"my-agent 冒烟终端（模型：{config.model_id}，权限模式：{mode.value}，"
+        f"shell：{shell_desc}，流式，空行退出）"
+    )
 
     while True:
         user_input = (await asyncio.to_thread(input, "> ")).strip()

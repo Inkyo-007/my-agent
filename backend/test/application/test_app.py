@@ -20,6 +20,8 @@ from src.core import (
 )
 from src.models import ModelConfig, ModelProviderType
 from src.runtime import RunStatus
+from src.security import ApprovalRequest, PermissionMode
+from src.tools.builtin import WriteFileTool
 
 
 def make_config() -> ModelConfig:
@@ -145,3 +147,131 @@ async def test_模型调用失败以FAILED收尾且不抛出():
     assert result.status == RunStatus.FAILED
     assert result.error is not None and "连接失败" in result.error
     assert EventType.TASK_FAILED in [e.type for e in events]
+
+
+class RecordingApprover:
+    """记录审批请求并给出预设回答的测试审批者"""
+
+    def __init__(self, answer: bool):
+        self.answer = answer
+        self.requests: List[ApprovalRequest] = []
+
+    async def approve(self, request: ApprovalRequest) -> bool:
+        self.requests.append(request)
+        return self.answer
+
+
+async def test_只读模式下写入被安全钩子拒绝并回喂(tmp_path):
+    """接线 workspace_root 后：只读模式的写操作被钩子拒绝，理由回喂模型"""
+    provider = ScriptedProvider(
+        [
+            make_provider_response(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="c1",
+                        name="write_file",
+                        input={"path": "a.txt", "content": "x"},
+                    )
+                ],
+            ),
+            make_provider_response(content="当前是只读模式，无法写入"),
+        ]
+    )
+    app = create_app(
+        make_config(),
+        tools=[WriteFileTool(tmp_path)],
+        provider=provider,
+        workspace_root=tmp_path,
+        permission_mode=PermissionMode.READ_ONLY,
+    )
+
+    result = await app.loop.run("写入文件")
+
+    assert result.status == RunStatus.COMPLETED
+    tool_result = app.loop.history.messages[3]
+    assert isinstance(tool_result, ToolResultMessage)
+    assert not tool_result.is_success
+    assert tool_result.status == "permission_denied"
+    assert not (tmp_path / "a.txt").exists()
+    # 拒绝理由回喂模型（模型据此向用户解释，而非盲目重试）
+    second_call = provider.calls[1]
+    assert "只读模式" in (second_call[3].content or "")
+
+
+async def test_工作区外写入经审批放行(tmp_path_factory):
+    """界外路径触发询问；审批者放行后写入真实发生（端到端关键路径）"""
+    root = tmp_path_factory.mktemp("root")
+    outside_file = tmp_path_factory.mktemp("outside") / "out.txt"
+    approver = RecordingApprover(answer=True)
+    provider = ScriptedProvider(
+        [
+            make_provider_response(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="c1",
+                        name="write_file",
+                        input={"path": str(outside_file), "content": "外部内容"},
+                    )
+                ],
+            ),
+            make_provider_response(content="已写入"),
+        ]
+    )
+    app = create_app(
+        make_config(),
+        tools=[WriteFileTool(root)],
+        provider=provider,
+        workspace_root=root,
+        permission_mode=PermissionMode.ASK,
+        approver=approver,
+    )
+    events = collect(app)
+
+    result = await app.loop.run("写入工作区外的文件")
+
+    assert result.status == RunStatus.COMPLETED
+    assert outside_file.read_text(encoding="utf-8") == "外部内容"
+    # 审批指名道姓：请求携带了具体的界外路径
+    assert len(approver.requests) == 1
+    assert approver.requests[0].outside_paths == [str(outside_file)]
+    assert EventType.APPROVAL_REQUEST in [e.type for e in events]
+    assert EventType.PERMISSION_CHECK in [e.type for e in events]
+
+
+async def test_审批通道未接入时询问fail_closed为拒绝(tmp_path_factory):
+    """ASK_USER 但没有 approver：按拒绝处理，界外写入不发生"""
+    root = tmp_path_factory.mktemp("root")
+    outside_file = tmp_path_factory.mktemp("outside") / "out.txt"
+    provider = ScriptedProvider(
+        [
+            make_provider_response(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="c1",
+                        name="write_file",
+                        input={"path": str(outside_file), "content": "x"},
+                    )
+                ],
+            ),
+            make_provider_response(content="操作被拒绝"),
+        ]
+    )
+    app = create_app(
+        make_config(),
+        tools=[WriteFileTool(root)],
+        provider=provider,
+        workspace_root=root,
+        permission_mode=PermissionMode.ASK,
+        # 故意不传 approver
+    )
+
+    result = await app.loop.run("写入工作区外的文件")
+
+    assert result.status == RunStatus.COMPLETED
+    tool_result = app.loop.history.messages[3]
+    assert isinstance(tool_result, ToolResultMessage)
+    assert not tool_result.is_success
+    assert not outside_file.exists()

@@ -7,6 +7,7 @@
 - LLM_API_KEY：API 密钥（必需）
 - LLM_API_MODEL：模型名称（必需）
 - LLM_BASE_URL：兼容服务的 base URL（可选，如 DeepSeek）
+- AGENT_PERMISSION_MODE：会话权限模式（可选）：read_only / ask（默认）/ full_access
 """
 
 import os
@@ -15,6 +16,7 @@ from typing import Dict
 from dotenv import load_dotenv
 
 from ..models import ModelConfig, ModelProviderType
+from ..security import PermissionMode
 
 
 class ConfigError(ValueError):
@@ -54,3 +56,25 @@ def load_model_config() -> ModelConfig:
         api_key=os.environ["LLM_API_KEY"],
         base_url=os.getenv("LLM_BASE_URL") or None,
     )
+
+
+_MODES: Dict[str, PermissionMode] = {
+    "read_only": PermissionMode.READ_ONLY,
+    "ask": PermissionMode.ASK,
+    "full_access": PermissionMode.FULL_ACCESS,
+}
+
+
+def load_permission_mode() -> PermissionMode:
+    """从环境变量 AGENT_PERMISSION_MODE 加载会话权限模式（默认 ask）
+
+    Raises:
+        ConfigError: 取值非法（可选值：read_only / ask / full_access）
+    """
+    raw = os.getenv("AGENT_PERMISSION_MODE", "ask").strip().lower()
+    mode = _MODES.get(raw)
+    if mode is None:
+        raise ConfigError(
+            f"AGENT_PERMISSION_MODE 取值非法：{raw!r}（可选：{'、'.join(_MODES)}）"
+        )
+    return mode

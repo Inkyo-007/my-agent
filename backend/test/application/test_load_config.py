@@ -6,9 +6,10 @@
 
 import pytest
 
-from src.application import ConfigError, load_model_config
+from src.application import ConfigError, load_model_config, load_permission_mode
 from src.application import config as config_module
 from src.models import ModelProviderType
+from src.security import PermissionMode
 
 
 @pytest.fixture(autouse=True)
@@ -20,7 +21,13 @@ def no_dotenv(monkeypatch):
 @pytest.fixture
 def env(monkeypatch):
     """清空相关环境变量，返回可继续 setenv/delenv 的 monkeypatch"""
-    for name in ("LLM_PROVIDER", "LLM_API_KEY", "LLM_API_MODEL", "LLM_BASE_URL"):
+    for name in (
+        "LLM_PROVIDER",
+        "LLM_API_KEY",
+        "LLM_API_MODEL",
+        "LLM_BASE_URL",
+        "AGENT_PERMISSION_MODE",
+    ):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 
@@ -76,3 +83,21 @@ def test_必需变量缺失时报错并指明变量名(env, missing):
 
     with pytest.raises(ConfigError, match=missing):
         load_model_config()
+
+
+class Test权限模式加载:
+    def test_缺省为请求询问(self, env):
+        assert load_permission_mode() == PermissionMode.ASK
+
+    def test_只读(self, env):
+        env.setenv("AGENT_PERMISSION_MODE", "read_only")
+        assert load_permission_mode() == PermissionMode.READ_ONLY
+
+    def test_完全访问(self, env):
+        env.setenv("AGENT_PERMISSION_MODE", "full_access")
+        assert load_permission_mode() == PermissionMode.FULL_ACCESS
+
+    def test_非法取值报错(self, env):
+        env.setenv("AGENT_PERMISSION_MODE", "yolo")
+        with pytest.raises(ConfigError, match="AGENT_PERMISSION_MODE"):
+            load_permission_mode()
