@@ -4,6 +4,10 @@
 各类失败语义（失败即结果，不抛异常）。
 """
 
+import os
+
+import pytest
+
 from src.tools import ToolRegistry
 from src.tools.builtin import ReadFileTool, WriteFileTool
 
@@ -66,6 +70,17 @@ class TestReadFile:
         )
         assert result.success is True
         assert "外部内容" in result.content
+
+    @pytest.mark.skipif(os.name != "nt", reason="MSYS 形态仅在 Windows 出现")
+    async def test_GitBash风格绝对路径(self, tmp_path):
+        # 模型从 Git Bash 的 pwd 输出学到 /d/... 形态；pathlib 会把它
+        # 错拼成 <root 盘>:\d\...，core.resolve_path 在解析前纠正
+        (tmp_path / "a.txt").write_text("内容", encoding="utf-8")
+        s = str(tmp_path.resolve()).replace("\\", "/")
+        msys_path = f"/{s[0].lower()}{s[2:]}/a.txt"
+        result = await ReadFileTool(tmp_path).call({"path": msys_path})
+        assert result.success is True
+        assert "内容" in result.content
 
     async def test_非UTF8文件(self, tmp_path):
         (tmp_path / "bin.dat").write_bytes(b"\xff\xfe\x00\x01")

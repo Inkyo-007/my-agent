@@ -4,14 +4,14 @@
 标注提取调用中的路径参数，逐个判定在工作区内/外，输出 PathReport；
 「OUTSIDE 该怎么办」（询问还是拒绝）由执行器集成结合权限模式决定。
 
-解析机制内聚在本层而非 core：围栏移除后只有 security 需要「规范化 +
-判内外」，按 core 章程（针对某一层的内容不下沉）留在本层；将来若有
-他层需要，再收敛到 core。
+解析原语（规范化 + resolve）在 core/paths.py：工具执行（tools）与安全
+判定（security）必须对同一路径字符串解析出同一个文件，共用一份实现
+从机制上消除「审批 A、执行 B」的错位（如 Git Bash 风格的 /d/... 路径，
+pathlib 会把它错拼到 root 所在盘下的字母目录）。本层只做「判内外」的分类语义。
 
-与 builtin 文件工具硬围栏的层次关系：fs.py 的围栏是工具自身的正确性
-约束（物理边界），存续至执行器集成落地——届时围栏移除，工作区外的
-读写由本层分析、经审批放行。本层使集成处在执行之前就能获得「该操作
-涉及工作区外」的事实。
+执行器集成落地后，fs 工具的硬围栏已移除：工作区外的读写由本层分析、
+经审批放行，工具只负责忠实执行。本层使集成处在执行之前就能获得
+「该操作涉及工作区外」的事实。
 
 fail-closed：无法解析的路径判 INVALID，消费方按 OUTSIDE 同等对待
 （touches_outside 属性已内置这一约定）。
@@ -20,16 +20,13 @@ fail-closed：无法解析的路径判 INVALID，消费方按 OUTSIDE 同等对�
 展开、硬链接无法按路径分辨、判定与执行之间的 TOCTOU 竞态。
 """
 
-import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List
 
 from ..core import ToolCall, ToolDefinition
-
-# 路径长度上限：输入卫生，防止异常超长输入；超限判非法
-_MAX_PATH_LENGTH = 4096
+from ..core import resolve_path as _core_resolve
 
 
 class PathLocation(Enum):
@@ -98,19 +95,13 @@ def _path_params(definition: ToolDefinition) -> List[str]:
 def resolve_in_root(root: Path, path: str) -> ResolvedPath | None:
     """将用户路径解析为绝对路径并判定是否在 root 内；None = 路径非法
 
-    - 空串、超长、含空字节 → None（非法）；
-    - NFC 归一化：消除跨平台 Unicode 形态差异（如 macOS 的 NFD 文件名）；
-    - root 须由调用方预先 resolve（构造期一次性完成，避免每次调用的 IO）；
-    - resolve() 展开符号链接与 junction，is_relative_to 判定（Windows
-      不区分大小写），不用字符串前缀比较；
-    - 不要求路径存在（resolve 默认非 strict），写入新文件的场景同样适用。
+    解析委托 core.resolve_path（规范化、合法性检查、符号链接展开），
+    本函数只做内/外分类：is_relative_to 判定（Windows 不区分大小写），
+    不用字符串前缀比较。root 须由调用方预先 resolve（构造期一次性完成，
+    避免每次调用的 IO）。
     """
-    if not path or len(path) > _MAX_PATH_LENGTH or "\x00" in path:
-        return None
-    normalized = unicodedata.normalize("NFC", path)
-    try:
-        resolved = (root / normalized).resolve()
-    except (OSError, ValueError):
+    resolved = _core_resolve(root, path)
+    if resolved is None:
         return None
     return ResolvedPath(path=resolved, within_root=resolved.is_relative_to(root))
 

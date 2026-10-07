@@ -49,6 +49,27 @@ class Test内外判定:
         assert result.within_root is True
 
 
+@pytest.mark.skipif(os.name != "nt", reason="MSYS 形态仅在 Windows 出现")
+class TestMSYS路径:
+    """Git Bash 风格路径（/d/...）：模型从 pwd 输出学到这种形态，必须正确分类"""
+
+    @staticmethod
+    def _msys(path: Path) -> str:
+        s = str(path.resolve()).replace("\\", "/")
+        return f"/{s[0].lower()}{s[2:]}"
+
+    def test_MSYS形态判为界内(self, tmp_path: Path):
+        result = resolve_in_root(tmp_path, self._msys(tmp_path / "a.txt"))
+        assert result is not None
+        assert result.within_root is True
+
+    def test_MSYS形态判为界外(self, tmp_path: Path):
+        outside = tmp_path.parent / "outside.txt"
+        result = resolve_in_root(tmp_path, self._msys(outside))
+        assert result is not None
+        assert result.within_root is False
+
+
 class Test编码与形态:
     @pytest.mark.skipif(os.name != "nt", reason="反斜杠仅在 Windows 是路径分隔符")
     def test_反斜杠穿越判为界外(self, tmp_path: Path):

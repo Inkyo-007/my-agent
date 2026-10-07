@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
-from ...core import Tool, ToolDefinition, ToolInputSchema, ToolResult
+from ...core import Tool, ToolDefinition, ToolInputSchema, ToolResult, resolve_path
 
 # 输出（stdout 与 stderr 合并后）的最大长度：足以覆盖常见构建/测试日志的
 # 尾部，又不至于一次撑爆上下文；截断时标注总长度
@@ -92,11 +92,12 @@ class ShellCommandTool(Tool):
     def _resolve_cwd(self, cwd: str) -> Path | None:
         """解析工作目录：空 = 工作区根目录；相对路径基于根目录
 
-        不做边界检查：工作区外 cwd 的裁决在 security 层（经审批放行后
-        应能真实执行），本工具只负责「解析并验证目录存在」。
+        解析用 core.resolve_path（与 security 判定共用同一实现）；不做
+        边界检查：工作区外 cwd 的裁决在 security 层（经审批放行后应能
+        真实执行），本工具只负责「解析并验证目录存在」。
         """
-        target = (self._root / cwd).resolve() if cwd else self._root
-        if not target.is_dir():
+        target = resolve_path(self._root, cwd) if cwd else self._root
+        if target is None or not target.is_dir():
             return None
         return target
 

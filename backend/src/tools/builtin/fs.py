@@ -14,21 +14,15 @@ import asyncio
 from pathlib import Path
 from typing import Any, Dict
 
-from ...core import Tool, ToolDefinition, ToolInputSchema, ToolResult
+from ...core import Tool, ToolDefinition, ToolInputSchema, ToolResult, resolve_path
 
 # read_file 单次返回的默认最大行数：足以覆盖大多数源码文件，
 # 又不至于一次撑爆上下文
 MAX_LINES = 2000
 
 
-def _resolve(root: Path, path: str) -> Path:
-    """将工具参数路径解析为绝对路径（相对路径基于工作区根目录）
-
-    resolve() 会展开符号链接。不做边界检查：路径内/外由 security
-    统一裁决（工作区外经审批放行），见 docs/design/backend/security.md。
-    """
-
-    return (root / path).resolve()
+# 路径解析用 core.resolve_path（与 security 判定共用同一实现，
+# 消除「审批 A、执行 B」的错位）；不做边界检查：内/外由 security 裁决
 
 
 def _fail(message: str) -> ToolResult:
@@ -81,7 +75,9 @@ class ReadFileTool(Tool):
         return await asyncio.to_thread(self._read, path, offset, limit)
 
     def _read(self, path: str, offset: int, limit: int) -> ToolResult:
-        target = _resolve(self._root, path)
+        target = resolve_path(self._root, path)
+        if target is None:
+            return _fail(f"路径非法：{path}")
         if not target.exists():
             return _fail(f"文件不存在：{path}")
         if target.is_dir():
@@ -150,7 +146,9 @@ class WriteFileTool(Tool):
         return await asyncio.to_thread(self._write, path, content)
 
     def _write(self, path: str, content: str) -> ToolResult:
-        target = _resolve(self._root, path)
+        target = resolve_path(self._root, path)
+        if target is None:
+            return _fail(f"路径非法：{path}")
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             # write_bytes 而非 write_text：避免 Windows 文本模式把 \n 转成 \r\n，

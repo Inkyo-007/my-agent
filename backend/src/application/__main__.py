@@ -82,6 +82,7 @@ async def _main() -> None:
         print(f"配置错误：{e}")
         return
 
+    config.reasoning_effort = "high"
     root = Path(PATH_TO_OWN_TESTS)
     tools = [ReadFileTool(root), WriteFileTool(root)]
     shell = detect_shell()

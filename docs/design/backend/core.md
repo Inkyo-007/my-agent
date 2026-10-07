@@ -20,6 +20,7 @@ core 基本只包含**定义**（契约与数据类型），不实现任何功�
 | `event.py` | 事件（`Event`、`EventType`）、事件总线接口（`EventBus`）与发射助手（`EventEmitter`） |
 | `tool.py` | 工具接口（`Tool`）、工具定义与调用、执行结果的统一类型 |
 | `provider.py` | 模型调用契约（`BaseProvider`）与协议层消息格式 |
+| `paths.py` | 路径解析原语（`normalize_path` / `resolve_path`）：tools 执行与 security 判定共用的路径规范化（MSYS 盘符纠正、NFC）与 resolve，消除「审批 A、执行 B」的错位 |
 
 ## 消息体系（message.py）
 

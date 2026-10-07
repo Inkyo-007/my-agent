@@ -7,6 +7,7 @@ from .message import (
     ToolCallMessage,
     ToolResultMessage,
 )
+from .paths import normalize_path, resolve_path
 from .provider import (
     BaseProvider,
     ProviderMessage,
@@ -37,6 +38,8 @@ __all__ = [
     "EventBus",
     "EventEmitter",
     "EventType",
+    "normalize_path",
+    "resolve_path",
     "Tool",
     "ToolCall",
     "ToolDefinition",
